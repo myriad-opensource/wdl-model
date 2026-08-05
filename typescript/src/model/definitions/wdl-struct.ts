@@ -1,0 +1,53 @@
+/** Struct definition nodes for the TypeScript WDL model. */
+import type { WdlNode } from '../base/wdl-node.js';
+import type { WdlType } from '../types/wdl-type.js';
+
+/** Marker for nodes that may appear directly inside a struct definition. */
+export interface WdlStructElement extends WdlNode {}
+
+/** Models a named typed member declared inside a WDL struct. */
+export class WdlStructMember implements WdlStructElement {
+  /** Creates a struct member from its type and member name. */
+  public constructor(
+    private typeValue?: WdlType,
+    private nameValue?: string,
+  ) {}
+
+  /** Returns the member type. */
+  public getType(): WdlType | undefined {
+    return this.typeValue;
+  }
+  /** Sets the member type. */
+  public setType(type: WdlType | undefined): void {
+    this.typeValue = type;
+  }
+  /** Returns the member name. */
+  public getName(): string | undefined {
+    return this.nameValue;
+  }
+  /** Sets the member name. */
+  public setName(name: string | undefined): void {
+    this.nameValue = name;
+  }
+}
+
+/** Models a WDL struct definition. */
+export class WdlStruct {
+  private readonly elementValues: WdlStructElement[] = [];
+
+  /** Creates a struct from its optional declared name. */
+  public constructor(private nameValue?: string) {}
+
+  /** Returns the declared struct name. */
+  public getName(): string | undefined {
+    return this.nameValue;
+  }
+  /** Sets the declared struct name. */
+  public setName(name: string | undefined): void {
+    this.nameValue = name;
+  }
+  /** Returns the ordered struct elements, usually members and metadata sections. */
+  public elements(): WdlStructElement[] {
+    return this.elementValues;
+  }
+}

@@ -1,0 +1,21 @@
+run:
+  timeout: 5m
+
+issues:
+  exclude-generated: strict
+  exclude-rules:
+    - path: ^grammar/wdl1/(wdlv1_.*|wdlv1parser_.*)\.go$
+      linters:
+        - govet
+        - staticcheck
+        - revive
+
+linters-settings:
+  revive:
+    ignore-generated-header: true
+
+linters:
+  enable:
+    - govet
+    - staticcheck
+    - revive

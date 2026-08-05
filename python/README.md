@@ -1,0 +1,85 @@
+# wdl-model Python Library
+
+This module provides a Python model and analysis layer for Workflow Description Language (WDL).
+
+This is a general-purpose package for building WDL tools. You can use it to parse, inspect, validate, and transform WDL documents.
+
+The Python library has its own test coverage for parsing, validation, processing, and fixture behavior.
+
+## What This Library Does
+
+This library helps you:
+
+1. Parse WDL source into model objects (documents, tasks, workflows, types, statements, and expressions).
+2. Resolve imports recursively through pluggable import resolvers.
+3. Process and traverse the model through visitor-style processor interfaces and base classes.
+4. Validate and lint documents with progressively stricter validators.
+
+## Loading Files And Imports
+
+WDL source is loaded through the v1 loader APIs.
+
+- Imports are resolved recursively and attached to the root document through imported-document mappings.
+- Resolution is delegated to import resolver implementations.
+- The filesystem resolver supports local and relative paths and rejects network protocols for deterministic local behavior.
+- Custom resolvers can be supplied when alternate import sources are needed.
+
+This keeps parsing independent from transport details while preserving reproducible local workflows.
+
+## Walking Documents
+
+The package includes processor APIs for walking documents in source order and building custom behavior on top of the model.
+
+- Base processor types provide default traversal over documents, expressions, and types.
+- Function and expression processor helpers support focused analysis flows.
+- Appending/rendering processor support provides a reference for source regeneration and custom transforms.
+
+## Validation Levels
+
+Validation is layered so callers can choose strictness based on their use case.
+
+1. WdlSemanticValidator (baseline semantic validation)
+- Declaration assignability checks, including explicit None optionality behavior.
+- Required/private call input rules.
+- Invalid member/index access checks.
+- Version-gated function availability checks.
+
+2. WdlStaticAnalysisSemanticValidator (deterministic static analysis)
+- Duplicate declarations and structural workflow issues.
+- Unknown call targets and unknown type references.
+- Function arity/signature mismatches.
+- Operator/type compatibility checks.
+
+3. WdlLintingSemanticValidator (usage and deprecation diagnostics)
+- Unused workflow/task declarations.
+- Unused scatter variables.
+- Unreferenced call outputs.
+- Deprecation warnings for parseable but discouraged constructs.
+
+## How Diagnostics Work
+
+Diagnostics are represented by WdlSemanticError and include:
+
+- stable code values
+- severity (ERROR or WARNING)
+- warning policy control
+
+By default, warnings still raise WdlException. If you want warnings collected but non-throwing:
+
+```python
+validator = WdlLintingSemanticValidator().setThrowOnWarnings(False)
+```
+
+Errors always raise.
+
+## Quick Example
+
+```python
+document = WdlV1Loader.load_from_string(source)
+
+WdlSemanticValidator().validateDocument(document)
+WdlStaticAnalysisSemanticValidator().validateDocument(document)
+WdlLintingSemanticValidator().setThrowOnWarnings(False).validateDocument(document)
+```
+
+If you only need the parsed model, stop after loading.

@@ -1,0 +1,37 @@
+{
+  "name": "@openwdl/wdl-model",
+  "version": "0.0.1-beta.0",
+  "description": "TypeScript WDL object model with optional validation layers",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "generate:antlr": "antlr4ng -Dlanguage=TypeScript -o ./src/generated ./antlr4/v1/WdlV1Lexer.g4 && antlr4ng -Dlanguage=TypeScript -visitor -listener -lib ./src/generated/antlr4/v1 -o ./src/generated ./antlr4/v1/WdlV1Lexer.g4 ./antlr4/v1/WdlV1Parser.g4",
+    "build": "npm run generate:antlr && tsc -p tsconfig.json",
+    "test": "vitest run",
+    "lint": "npm run generate:antlr && tsc -p tsconfig.json --noEmit && eslint src test vitest.config.ts && npm run format:check",
+    "format": "prettier --write \"src/**/*\" \"test/**/*\" \"*.{json,md,ts,mjs}\"",
+    "format:check": "prettier --check \"src/**/*\" \"test/**/*\" \"*.{json,md,ts,mjs}\""
+  },
+  "dependencies": {
+    "antlr4ng": "^3.0.16"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.0",
+    "@types/node": "^22.10.2",
+    "antlr4ng-cli": "^2.0.0",
+    "eslint": "^9.39.5",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.9.6",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.66.0",
+    "vitest": "^2.1.9"
+  },
+  "allowScripts": {
+    "esbuild@0.21.5": true
+  }
+}

@@ -1,0 +1,109 @@
+# wdl-model Go Library
+
+This module provides a Go model and analysis layer for Workflow Description Language (WDL).
+
+This is a general-purpose package for building WDL tools. You can use it to parse, inspect, validate, and transform WDL documents.
+
+## What This Library Does
+
+This library helps you:
+
+1. Parse WDL source into model objects (documents, tasks, workflows, import metadata, and declarations).
+2. Resolve imports recursively through pluggable import resolvers.
+3. Process and traverse loaded documents with callback-oriented processor APIs.
+4. Validate and lint documents with progressively stricter validators.
+
+## Name And Import Path
+
+The module path uses `wdl-model` to match repository naming:
+
+- `github.com/myriad-opensource/wdl-model/go`
+
+Go package identifiers cannot contain `-`, so the public package is intentionally named `wdl`.
+
+## Generated Parser Code
+
+Generated ANTLR parser code is isolated in a dedicated package:
+
+- `grammar/wdl1`
+
+Handwritten library APIs live in:
+
+- `wdl`
+
+This follows the same generated-code split used in the Java, Python, and TypeScript libraries.
+
+## Loading Files And Imports
+
+`wdl.Loader` is the entry point for parsing and import-aware document loading.
+
+- Imports are resolved recursively and attached to the root document through `ImportedDocs` and `ImportStatements`.
+- Resolution is delegated to `wdl.Resolver` implementations.
+- `wdl.NewDefaultResolver(...)` supports local file and HTTP(S) imports with configurable TLS behavior.
+
+## Walking Documents
+
+The package includes processor APIs for walking a document and imported subdocuments in traversal order.
+
+- `wdl.Processor` defines callbacks.
+- `wdl.ProcessorBase` provides no-op defaults.
+- `wdl.TraverseDocument(...)` performs recursive traversal.
+
+## Validation Levels
+
+Validation is layered so callers can choose strictness based on their use case.
+
+1. `wdl.SemanticValidator` (baseline semantic validation)
+- Duplicate top-level definition detection.
+- Structural rule requiring exactly one workflow.
+- Import alias conflict checks.
+
+2. `wdl.StaticValidator` (deterministic static analysis)
+- Currently delegates to semantic validation and is the extension point for stricter static checks.
+
+3. `wdl.LintingValidator` (usage and deprecation diagnostics)
+- Unused import aliases/symbol diagnostics.
+- Deprecation warnings such as `file://` import URI usage.
+
+## Test Coverage
+
+The Go module runs fixture-based tests from repository suites, including:
+
+- `function_version_matrix`
+- `static_function_signature_matrix`
+- `type_assignability_matrix`
+- `expression_operator_semantics`
+- `import_validation`
+- `import_edge_cases`
+- `validator`
+- `deprecations`
+- `loader_imports`
+- `resolver_filesystem`
+- `processor_imports`
+
+## How Diagnostics Work
+
+Diagnostics are represented by semantic/syntax error types and include:
+
+- stable code values
+- severity (`ERROR` or `WARNING`)
+- warning policy control
+
+By default, warning-only lint diagnostics do not fail validation. Set `ThrowOnWarnings: true` to escalate warnings into returned errors.
+
+## Quick Example
+
+```go
+resolver, _ := wdl.NewDefaultResolver(wdl.ResolverConfig{})
+loader := wdl.NewLoader()
+
+doc, err := loader.LoadFile(ctx, "workflow.wdl", wdl.WithResolver(resolver))
+if err != nil {
+    // handle parse/load diagnostics
+}
+
+validator := wdl.NewLintingValidator(wdl.SemanticValidatorConfig{ThrowOnWarnings: false})
+if err := validator.Validate(ctx, doc); err != nil {
+    // handle validation diagnostics
+}
+```

@@ -1,0 +1,8 @@
+# Ignore everything in this directory by default.
+*
+
+# Keep only canonical source/metadata files.
+!.gitignore
+!package.go
+!WdlV1Lexer.g4
+!WdlV1Parser.g4
