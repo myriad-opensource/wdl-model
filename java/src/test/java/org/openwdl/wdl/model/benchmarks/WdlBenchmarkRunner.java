@@ -2,11 +2,9 @@ package org.openwdl.wdl.model.benchmarks;
 
 import com.myriad.wdl.model.WdlDocument;
 import com.myriad.wdl.model.WdlV1Loader;
-import com.myriad.wdl.model.errors.WdlException;
 import com.myriad.wdl.model.resolvers.WdlImportResolverFilesystem;
 import com.myriad.wdl.model.validators.WdlLintingValidator;
 import com.myriad.wdl.model.validators.WdlValidator;
-import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -63,7 +61,8 @@ public final class WdlBenchmarkRunner {
 
     String simpleSource =
         Files.readString(
-            Path.of("src", "test", "resources", "wdl_tests", "validator", "loader_valid_document.wdl"));
+            Path.of(
+                "src", "test", "resources", "wdl_tests", "validator", "loader_valid_document.wdl"));
     Path importRoot =
         Path.of("src", "test", "resources", "wdl_tests", "loader_imports", "recursive", "root.wdl");
 
@@ -79,10 +78,10 @@ public final class WdlBenchmarkRunner {
             "load recursive imports from file",
             () -> WdlV1Loader.load(importRoot.toFile(), null, new WdlImportResolverFilesystem())));
     scenarios.add(
-        new Scenario("semantic validate parsed doc", () -> semanticValidator.validate(parsedDocument)));
-    scenarios.add(
         new Scenario(
-            "lint validate parsed doc", () -> lintingValidator.validate(parsedDocument)));
+            "semantic validate parsed doc", () -> semanticValidator.validate(parsedDocument)));
+    scenarios.add(
+        new Scenario("lint validate parsed doc", () -> lintingValidator.validate(parsedDocument)));
 
     List<Result> results = new ArrayList<>();
     for (Scenario scenario : scenarios) {
