@@ -1995,33 +1995,3 @@ public class WdlV1Loader extends WdlV1ParserBaseVisitor<Void> {
     expr.setFalseValue(elseValue);
     return null;
   }
-
-  //  // =========================================================================
-  //  // Identifiers
-  //  // =========================================================================
-  //
-  //  @Override
-  //  public Void visitStrictIdentifier(StrictIdentifierContext ctx) {
-  //    stack.push(new WdlIdentifier(ctx.getText()));
-  //    return super.visitStrictIdentifier(ctx);
-  //  }
-  //
-  //  @Override
-  //  public Void visitDottedIdentifier(DottedIdentifierContext ctx) {
-  //    WdlIdentifier id = new WdlIdentifier();
-  //    stack.push(id);
-  //    super.visitDottedIdentifier(ctx);
-  //    ArrayDeque<String> parts = new ArrayDeque<>();
-  //    while (stack.peek() != id) {
-  //      WdlIdentifier part = popWithType(WdlIdentifier.class);
-  //      parts.push(part.identifier());
-  //      if (stack.peek() != id) {
-  //        parts.push(".");
-  //      }
-  //    }
-  //    StringBuilder str = new StringBuilder(128);
-  //    parts.forEach(p -> str.append(p));
-  //    id.setIdentifier(str.toString());
-  //    return null;
-  //  }
-}
