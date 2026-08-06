@@ -29,8 +29,6 @@ And add the GitHub Packages repository:
 </repository>
 ```
 
-If the repository is private, configure credentials for server id `github` in your Maven `settings.xml`.
-
 ## What This Library Does
 
 This library helps you:
@@ -141,3 +139,7 @@ make publish-release
 ```
 
 This publishes the Maven package, creates an annotated git tag named `java-<version>`, and creates a GitHub Release for that tag.
+
+Before publishing, load repo env vars with `direnv allow` (or `. ../.envrc` without direnv).
+
+Note: Maven/Java + VPN certs can be tricky.

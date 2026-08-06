@@ -5,28 +5,44 @@ RELEASE_BRANCH ?= main
 
 .PHONY: clean build test package publish-prerelease publish-release lint format profile-mem profile-mem-ui
 clean:
-	@mvn clean
+	@mvn -s .mvn/settings.xml clean
 
 build:
-	@mvn clean compile
+	@mvn -s .mvn/settings.xml clean compile
 
 test:
-	@mvn test
+	@mvn -s .mvn/settings.xml test
 
 package:
-	@mvn clean package
+	@mvn -s .mvn/settings.xml clean package
 
 publish-prerelease: lint test
-	@VERSION=$$(mvn -q -DforceStdout help:evaluate -Dexpression=project.version); \
+	@VERSION=$$(mvn -s .mvn/settings.xml -q -DforceStdout help:evaluate -Dexpression=project.version); \
+	if [ -z "$$GH_USER" ]; then \
+		echo "ERROR: GH_USER is empty. Run 'direnv allow' or export GH_USER manually."; \
+		exit 1; \
+	fi; \
+	if [ -z "$$GH_MYRIADOPENSOURCE" ]; then \
+		echo "ERROR: GH_MYRIADOPENSOURCE is empty. Export your GitHub token first."; \
+		exit 1; \
+	fi; \
 	if ! echo "$$VERSION" | grep -q -- '-SNAPSHOT$$'; then \
 		echo "ERROR: publish-prerelease requires a -SNAPSHOT version in pom.xml, got $$VERSION"; \
 		exit 1; \
 	fi; \
 	echo "Publishing Maven snapshot $$VERSION to GitHub Packages..."; \
-	mvn deploy
+	mvn -s .mvn/settings.xml deploy
 
 publish-release: lint test
-	@VERSION=$$(mvn -q -DforceStdout help:evaluate -Dexpression=project.version); \
+	@VERSION=$$(mvn -s .mvn/settings.xml -q -DforceStdout help:evaluate -Dexpression=project.version); \
+	if [ -z "$$GH_USER" ]; then \
+		echo "ERROR: GH_USER is empty. Run 'direnv allow' or export GH_USER manually."; \
+		exit 1; \
+	fi; \
+	if [ -z "$$GH_MYRIADOPENSOURCE" ]; then \
+		echo "ERROR: GH_MYRIADOPENSOURCE is empty. Export your GitHub token first."; \
+		exit 1; \
+	fi; \
 	if echo "$$VERSION" | grep -q -- '-SNAPSHOT$$'; then \
 		echo "ERROR: publish-release requires a non-SNAPSHOT version in pom.xml, got $$VERSION"; \
 		exit 1; \
@@ -46,22 +62,22 @@ publish-release: lint test
 		exit 1; \
 	fi; \
 	echo "Publishing Maven release $$VERSION to GitHub Packages..."; \
-	mvn deploy; \
+	mvn -s .mvn/settings.xml deploy; \
 	echo "Creating annotated tag $$TAG_NAME and GitHub release..."; \
 	git tag -a "$$TAG_NAME" -m "$$TAG_NAME"; \
 	git push origin "$$TAG_NAME"; \
 	gh release create "$$TAG_NAME" --title "$$TAG_NAME" --generate-notes
 
 lint:
-	@mvn spotless:check
+	@mvn -s .mvn/settings.xml spotless:check
 
 format:
-	@mvn spotless:apply
+	@mvn -s .mvn/settings.xml spotless:apply
 
 profile-mem:
 	@mkdir -p $(PROFILE_DIR)
 	@MAVEN_OPTS="-XX:StartFlightRecording=filename=$(PROFILE_DIR)/profile.jfr,settings=profile,dumponexit=true" \
-		mvn -q clean -DskipTests \
+		mvn -s .mvn/settings.xml -q clean -DskipTests \
 		-Dexec.mainClass=org.openwdl.wdl.model.benchmarks.WdlBenchmarkRunner \
 		-Dexec.classpathScope=test \
 		-Dexec.args="--iterations $(PROFILE_ITERATIONS) --warmup $(PROFILE_WARMUP) --bench-output $(PROFILE_DIR)/bench.txt" \
