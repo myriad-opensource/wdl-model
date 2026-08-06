@@ -85,7 +85,8 @@ func NewLoader() *Loader { return NewWdlV1Loader() }
 
 // LoadString parses source text, resolves imports, and optionally validates.
 //
-// Import cycles are guarded by a visited set keyed by resolved location.
+// Import resolution keeps a cache of fully loaded documents plus an active import
+// path so cycles can be detected and reported with the full chain.
 func (l *WdlV1Loader) LoadString(ctx context.Context, source string, options ...LoadOption) (*Document, error) {
 	opts := defaultLoadOptions()
 	for _, option := range options {
@@ -99,6 +100,7 @@ func (l *WdlV1Loader) LoadString(ctx context.Context, source string, options ...
 		opts.Resolver = resolver
 	}
 	loadedByID := map[string]*Document{}
+	// activeImportSet mirrors the current recursion path for O(1) cycle checks.
 	activeImportSet := map[string]struct{}{}
 	doc, err := l.loadRecursive(ctx, source, opts.SourceLocation, opts, 0, loadedByID, nil, activeImportSet)
 	if err != nil {
@@ -164,6 +166,7 @@ func (l *WdlV1Loader) loadRecursive(
 	}
 
 	if sourceLocation != "" {
+		// Keep the ordered path for diagnostics and a set for fast cycle checks.
 		activeImportStack = append(activeImportStack, sourceLocation)
 		activeImportSet[sourceLocation] = struct{}{}
 		loadedByID[sourceLocation] = doc
@@ -206,6 +209,7 @@ func (l *WdlV1Loader) loadRecursive(
 }
 
 func circularImportError(activeImportStack []string, importIdentifier string) error {
+	// Include the full cycle path in the error so import loops are easy to debug.
 	cyclePath := append(append([]string{}, activeImportStack...), importIdentifier)
 	return fmt.Errorf("circular import detected: %s", strings.Join(cyclePath, " -> "))
 }

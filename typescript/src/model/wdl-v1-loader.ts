@@ -320,6 +320,13 @@ export class WdlV1Loader {
     return document;
   }
 
+  /**
+   * Resolves imports depth-first while tracking the active import path.
+   *
+   * `loadedById` caches fully loaded documents, `activeImportStack` preserves the
+   * current resolution chain for diagnostics, and `activeImportSet` provides fast
+   * cycle detection keyed by resolved import identifier.
+   */
   private static resolveImportsRecursive(
     document: WdlDocument,
     importResolver: WdlImportResolverBase,
@@ -329,6 +336,7 @@ export class WdlV1Loader {
   ): void {
     const currentSourceLocation = document.getSourceLocation();
     if (currentSourceLocation) {
+      // Keep both order and O(1) membership checks for the active recursion path.
       activeImportStack.push(currentSourceLocation);
       activeImportSet.add(currentSourceLocation);
       loadedById.set(currentSourceLocation, document);
@@ -351,6 +359,7 @@ export class WdlV1Loader {
 
         if (activeImportSet.has(importIdentifier)) {
           throw new WdlImportException(
+            // Include the full path that closed the loop to make debugging easier.
             `Circular import detected: ${[...activeImportStack, importIdentifier].join(' -> ')}`,
             importIdentifier,
           );

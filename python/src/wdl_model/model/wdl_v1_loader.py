@@ -226,8 +226,15 @@ class WdlV1Loader(WdlV1ParserVisitor):
         active_import_stack: list[str],
         active_import_set: set[str],
     ) -> None:
+        """Resolve imports depth-first with cycle detection keyed by resolved identity.
+
+        ``loaded_by_id`` caches fully loaded documents, ``active_import_stack`` keeps
+        the ordered import chain for diagnostics, and ``active_import_set`` provides
+        fast membership checks for cycle detection.
+        """
         current_source_location = document.getSourceLocation()
         if current_source_location is not None:
+            # Keep both the ordered path and an O(1) membership set.
             active_import_stack.append(current_source_location)
             active_import_set.add(current_source_location)
             loaded_by_id.setdefault(current_source_location, document)
@@ -249,6 +256,7 @@ class WdlV1Loader(WdlV1ParserVisitor):
 
                 if import_identifier in active_import_set:
                     raise WdlImportException(
+                        # Report the full cycle path so the loop is obvious.
                         f"Circular import detected: {' -> '.join([*active_import_stack, import_identifier])}",
                         import_identifier,
                     )

@@ -338,6 +338,10 @@ public class WdlV1Loader extends WdlV1ParserBaseVisitor<Void> {
 
   /**
    * Resolve imports depth-first and populate imported document maps on each visited document.
+   *
+   * <p>{@code loadedById} caches fully loaded documents, {@code activeImportStack} preserves the
+   * current resolution chain for diagnostics, and {@code activeImportSet} provides fast cycle
+   * detection keyed by resolved import identifier.
    */
   private static void resolveImportsRecursive(
       WdlDocument document,
@@ -350,6 +354,7 @@ public class WdlV1Loader extends WdlV1ParserBaseVisitor<Void> {
     String currentDocumentIdentifier =
         currentSourceLocation != null ? currentSourceLocation.toString() : null;
     if (currentDocumentIdentifier != null) {
+      // Keep both the ordered path and an O(1) membership check for active imports.
       activeImportStack.addLast(currentDocumentIdentifier);
       activeImportSet.add(currentDocumentIdentifier);
       loadedById.putIfAbsent(currentDocumentIdentifier, document);
@@ -402,6 +407,7 @@ public class WdlV1Loader extends WdlV1ParserBaseVisitor<Void> {
 
   private static WdlException circularImportException(
       ArrayDeque<String> activeImportStack, String importIdentifier) {
+    // Include the full cycle path so the import loop is easy to diagnose.
     List<String> cyclePath = new ArrayList<>(activeImportStack);
     cyclePath.add(importIdentifier);
     return new com.myriad.wdl.model.errors.WdlImportException(
