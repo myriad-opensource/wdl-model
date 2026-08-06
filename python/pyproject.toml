@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "wdl-model"
-version = "0.0.1b0"
+version = "0.0.2b0"
 description = "TODO"
 license = "MIT"
 authors = ["Art Gramlich <art.gramlich@myriad.com>"]
