@@ -222,7 +222,7 @@ public class WdlV1Loader extends WdlV1ParserBaseVisitor<Void> {
     WdlDocument document = parseDocument(input, currentDocumentLocation);
 
     if (importResolver != null) {
-      resolveImportsRecursive(document, importResolver, new HashMap<>());
+      resolveImportsRecursive(document, importResolver, new HashMap<>(), new ArrayDeque<>());
     }
     if (validator != null) {
       validator.validate(document);
@@ -339,43 +339,66 @@ public class WdlV1Loader extends WdlV1ParserBaseVisitor<Void> {
   private static void resolveImportsRecursive(
       WdlDocument document,
       WdlImportResolverBase importResolver,
-      Map<String, WdlDocument> loadedById)
+      Map<String, WdlDocument> loadedById,
+      ArrayDeque<String> activeImportStack)
       throws WdlException {
     URI currentSourceLocation = document.getSourceLocation();
-    if (currentSourceLocation != null) {
-      loadedById.putIfAbsent(currentSourceLocation.toString(), document);
+    String currentDocumentIdentifier =
+        currentSourceLocation != null ? currentSourceLocation.toString() : null;
+    if (currentDocumentIdentifier != null) {
+      activeImportStack.addLast(currentDocumentIdentifier);
+      loadedById.putIfAbsent(currentDocumentIdentifier, document);
     }
 
-    document.importedDocuments().clear();
-    URI currentLocation = document.getSourceLocation();
-    for (WdlImport imp : document.importStatements()) {
-      WdlStringLiteral sourceLiteral = imp.getSource();
-      if (sourceLiteral == null) {
-        continue;
+    try {
+      document.importedDocuments().clear();
+      URI currentLocation = document.getSourceLocation();
+      for (WdlImport imp : document.importStatements()) {
+        WdlStringLiteral sourceLiteral = imp.getSource();
+        if (sourceLiteral == null) {
+          continue;
+        }
+
+        String importReference = extractStringLiteralText(sourceLiteral);
+        URI resolvedImportLocation =
+            importResolver.resolveImportLocation(currentLocation, importReference);
+        String importIdentifier =
+            resolvedImportLocation != null ? resolvedImportLocation.toString() : importReference;
+        imp.setImportIdentifier(importIdentifier);
+
+        if (activeImportStack.contains(importIdentifier)) {
+          throw circularImportException(activeImportStack, importIdentifier);
+        }
+
+        String importSourceText = importResolver.resolveImport(currentLocation, importReference);
+        imp.setSourceText(importSourceText);
+
+        WdlDocument importedDocument = loadedById.get(importIdentifier);
+        if (importedDocument == null) {
+          importedDocument =
+              parseDocument(
+                  org.antlr.v4.runtime.CharStreams.fromString(importSourceText),
+                  resolvedImportLocation);
+          loadedById.put(importIdentifier, importedDocument);
+          resolveImportsRecursive(importedDocument, importResolver, loadedById, activeImportStack);
+        }
+
+        document.importedDocuments().put(importIdentifier, importedDocument);
       }
-
-      String importReference = extractStringLiteralText(sourceLiteral);
-      URI resolvedImportLocation =
-          importResolver.resolveImportLocation(currentLocation, importReference);
-      String importIdentifier =
-          resolvedImportLocation != null ? resolvedImportLocation.toString() : importReference;
-      imp.setImportIdentifier(importIdentifier);
-
-      String importSourceText = importResolver.resolveImport(currentLocation, importReference);
-      imp.setSourceText(importSourceText);
-
-      WdlDocument importedDocument = loadedById.get(importIdentifier);
-      if (importedDocument == null) {
-        importedDocument =
-            parseDocument(
-                org.antlr.v4.runtime.CharStreams.fromString(importSourceText),
-                resolvedImportLocation);
-        loadedById.put(importIdentifier, importedDocument);
-        resolveImportsRecursive(importedDocument, importResolver, loadedById);
+    } finally {
+      if (currentDocumentIdentifier != null
+          && currentDocumentIdentifier.equals(activeImportStack.peekLast())) {
+        activeImportStack.removeLast();
       }
-
-      document.importedDocuments().put(importIdentifier, importedDocument);
     }
+  }
+
+  private static WdlException circularImportException(
+      ArrayDeque<String> activeImportStack, String importIdentifier) {
+    List<String> cyclePath = new ArrayList<>(activeImportStack);
+    cyclePath.add(importIdentifier);
+    return new com.myriad.wdl.model.errors.WdlImportException(
+        "Circular import detected: " + String.join(" -> ", cyclePath), importIdentifier);
   }
 
   /**
