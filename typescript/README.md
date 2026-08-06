@@ -42,7 +42,7 @@ The package exposes loader entry points for different execution environments:
 
 - browser/web loading helpers for File/Blob and Response inputs
 
-## Walking Documents
+## Walking Documents (Processor Core)
 
 The package includes processor APIs for walking documents in source order and building custom behavior on top of the model.
 
@@ -50,6 +50,8 @@ The package includes processor APIs for walking documents in source order and bu
 - WdlProcessorBase provides default traversal and import helper functionality.
 - Expression/function processor helpers support focused analysis flows.
 - Appending processor support provides a reference for source regeneration and custom transforms.
+
+Processors are the main extension point in this package: traversal is performed by processor implementations. Built-in validators are layered on top of the same traversal approach, and custom validators/checkers can follow the same pattern.
 
 ## Validation Levels
 

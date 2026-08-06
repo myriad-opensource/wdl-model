@@ -41,13 +41,15 @@ This follows the same generated-code split used in the Java, Python, and TypeScr
 - Resolution is delegated to `wdl.Resolver` implementations.
 - `wdl.NewDefaultResolver(...)` supports local file and HTTP(S) imports with configurable TLS behavior.
 
-## Walking Documents
+## Walking Documents (Processor Core)
 
 The package includes processor APIs for walking a document and imported subdocuments in traversal order.
 
 - `wdl.Processor` defines callbacks.
 - `wdl.ProcessorBase` provides no-op defaults.
 - `wdl.TraverseDocument(...)` performs recursive traversal.
+
+Processors are the main extension point in this package: traversal is performed by processor implementations. Built-in validators are layered on top of the same traversal approach, and custom validators/checkers can follow the same pattern.
 
 ## Validation Levels
 

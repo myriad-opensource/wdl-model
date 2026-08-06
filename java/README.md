@@ -26,7 +26,7 @@ This library helps you:
 
 This separation keeps parsing independent from transport details while preserving reproducible test and local development behavior.
 
-## Walking Documents
+## Walking Documents (Processor Core)
 
 The library includes processor APIs for walking documents in source order and building custom behavior on top of the model.
 
@@ -35,7 +35,7 @@ The library includes processor APIs for walking documents in source order and bu
 - `WdlExpressionProcessor` and `WdlFunctionProcessor` support focused expression/function traversal workflows.
 - `WdlAppendingProcessor` demonstrates rendering model objects back to WDL source and serves as a reference implementation for custom processors.
 
-This makes the library useful not only for validation, but also for general WDL analysis and transformation pipelines.
+Processors are the core extension point in this library: traversal happens through processor implementations. The built-in validators use the same model-walking pattern, and custom validators/checkers can be built the same way.
 
 ## Validation Levels
 

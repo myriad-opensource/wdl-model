@@ -26,13 +26,15 @@ WDL source is loaded through the v1 loader APIs.
 
 This keeps parsing independent from transport details while preserving reproducible local workflows.
 
-## Walking Documents
+## Walking Documents (Processor Core)
 
 The package includes processor APIs for walking documents in source order and building custom behavior on top of the model.
 
 - Base processor types provide default traversal over documents, expressions, and types.
 - Function and expression processor helpers support focused analysis flows.
 - Appending/rendering processor support provides a reference for source regeneration and custom transforms.
+
+Processors are the main extension point in this package: traversal is performed by processor implementations. Built-in validators are layered on top of the same traversal approach, and custom validators/checkers can follow the same pattern.
 
 ## Validation Levels
 
