@@ -32,6 +32,7 @@ clean: clean-go clean-java clean-python clean-typescript
 .PHONY: build-go test-go package-go lint-go format-go clean-go
 
 build-go: spec_examples
+	@(cd go && $(MAKE) generate)
 	@(cd go && $(MAKE) build)
 
 test-go: spec_examples
@@ -80,6 +81,7 @@ clean-java:
 .PHONY: build-python test-python package-python lint-python format-python clean-python
 
 build-python: spec_examples
+	@(cd python && $(MAKE) install)
 	@(cd python && $(MAKE) build)
 
 test-python: spec_examples
@@ -104,6 +106,7 @@ clean-python:
 .PHONY: build-typescript test-typescript package-typescript lint-typescript format-typescript clean-typescript
 
 build-typescript: spec_examples
+	@(cd typescript && $(MAKE) install)
 	@(cd typescript && $(MAKE) build)
 
 test-typescript: spec_examples
