@@ -17,7 +17,7 @@ clean:
 
 build: generate-grammar
 
-test:
+test: build
 	poetry run pytest -q
 
 package: build

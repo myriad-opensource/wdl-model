@@ -14,7 +14,7 @@ clean:
 build:
 	$(NPM) run build
 
-test:
+test: build
 	$(NPM) test
 
 package:
