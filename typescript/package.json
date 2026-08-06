@@ -1,6 +1,9 @@
 {
-  "name": "@myriad/wdl-model",
-  "version": "0.0.1-beta.0",
+  "name": "@myriad-opensource/wdl-model",
+  "version": "0.0.2-beta.0",
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
   "description": "TypeScript WDL object model with optional validation layers",
   "license": "MIT",
   "author": "Myriad Genetics, Inc.",

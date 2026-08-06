@@ -6,6 +6,22 @@ This is a general-purpose package for building WDL tools. You can use it to pars
 
 The TypeScript library has its own test coverage for parsing, validation, processing, and fixture behavior.
 
+## Installing In Your Project
+
+This package is published to GitHub Packages, so in your project `.npmrc` file, add this line (or keep your existing entries and include this one):
+
+```properties
+@myriad-opensource:registry=https://npm.pkg.github.com
+```
+
+```json
+{
+  "dependencies": {
+    "@myriad-opensource/wdl-model": "0.1.0"
+  }
+}
+```
+
 ## What This Library Does
 
 This library helps you:
@@ -98,3 +114,59 @@ Errors always throw.
 ## Testing
 
 The TypeScript package includes fixture suites for import resolution, import edge cases, static signature checks, operator semantics, type assignability, deprecation linting, and broad spec-example coverage.
+
+## Publishing And Releasing
+
+This package publishes to GitHub Packages in the `@myriad-opensource` org scope.
+
+Before you publish anything:
+
+- Set your package token in your shell:
+
+```bash
+export GH_MYRIADOPENSOURCE=your_token_here
+```
+
+- Make sure that token has package publish permissions (`write:packages`, `read:packages`).
+- For full releases, make sure GitHub CLI auth can create releases in this repo (`repo`, `read:org`) and is SSO-authorized for the org if required.
+
+### Publish A Prerelease
+
+Use this when the version is a beta (example: `0.0.1-beta.3`).
+
+- Bump `package.json` to a new, unique beta version.
+- Run:
+
+```bash
+make publish-prerelease
+```
+
+What happens:
+
+- Publishes the npm package to GitHub Packages.
+- Applies the `beta` tag.
+- Shows up under the org Packages page.
+- Does not create a git tag.
+- Does not create a GitHub Release entry.
+
+### Publish A Release
+
+Use this when the version is stable (example: `0.1.0`, not beta).
+
+- Bump `package.json` to a new, unique non-beta version.
+- Run:
+
+```bash
+make publish-release
+```
+
+What happens:
+
+- Publishes the npm package to GitHub Packages with the `latest` tag.
+- Creates and pushes git tag `v<version>`.
+- Creates a GitHub Release in the project Releases page for that tag.
+
+### Quick Safety Notes
+
+- Reusing the same package version will fail. Always bump the version first.
+- `make package` is a dry-run check if you want to verify packaging before publishing.

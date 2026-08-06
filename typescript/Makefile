@@ -1,7 +1,8 @@
 NPM ?= npm
 PROFILE_DIR ?= .profiles
+RELEASE_BRANCH ?= main
 
-.PHONY: install clean build test package lint format generate-grammar profile-mem profile-mem-ui
+.PHONY: install clean build test package publish publish-prerelease publish-release lint format generate-grammar profile-mem profile-mem-ui
 
 install:
 	$(NPM) install
@@ -17,9 +18,53 @@ build:
 test: build
 	$(NPM) test
 
-package:
-	$(NPM) run build
-	$(NPM) pack
+package: build
+	@VERSION=$$(node -p "require('./package.json').version"); \
+	if echo "$$VERSION" | grep -qi 'beta'; then \
+		TAG=beta; \
+	else \
+		TAG=latest; \
+	fi; \
+	echo "Dry run for version $$VERSION with tag '$$TAG'..."; \
+	$(NPM) publish --tag $$TAG --dry-run
+
+publish: publish-prerelease
+
+publish-prerelease: build
+	@VERSION=$$(node -p "require('./package.json').version"); \
+	if ! echo "$$VERSION" | grep -qi 'beta'; then \
+		echo "ERROR: publish-prerelease expects a beta version, got $$VERSION"; \
+		exit 1; \
+	fi; \
+	echo "Publishing npm package $$VERSION with tag beta..."; \
+	$(NPM) publish --tag beta
+
+publish-release: build
+	@VERSION=$$(node -p "require('./package.json').version"); \
+	if echo "$$VERSION" | grep -qi 'beta'; then \
+		echo "ERROR: publish-release requires a non-beta version, got $$VERSION"; \
+		exit 1; \
+	fi; \
+	BRANCH=$$(git rev-parse --abbrev-ref HEAD); \
+	if [ "$$BRANCH" != "$(RELEASE_BRANCH)" ]; then \
+		echo "ERROR: releases must be cut from '$(RELEASE_BRANCH)'; current branch is '$$BRANCH'"; \
+		exit 1; \
+	fi; \
+	if ! command -v gh >/dev/null 2>&1; then \
+		echo "ERROR: GitHub CLI (gh) is required to cut a release."; \
+		exit 1; \
+	fi; \
+	TAG_NAME=v$$VERSION; \
+	if git rev-parse "$$TAG_NAME" >/dev/null 2>&1 || git ls-remote --tags origin "refs/tags/$$TAG_NAME" | grep -q .; then \
+		echo "ERROR: tag $$TAG_NAME already exists. Bump version before publishing again."; \
+		exit 1; \
+	fi; \
+	echo "Publishing npm package $$VERSION with tag latest..."; \
+	$(NPM) publish --tag latest; \
+	echo "Creating git tag $$TAG_NAME and GitHub release..."; \
+	git tag -a "$$TAG_NAME" -m "$$TAG_NAME"; \
+	git push origin "$$TAG_NAME"; \
+	gh release create "$$TAG_NAME" --title "$$TAG_NAME" --generate-notes
 
 lint:
 	$(NPM) run lint
