@@ -1,9 +1,11 @@
-.PHONY: clean build test lint lint-strict format generate tidy profile-mem profile-mem-ui
+.PHONY: clean build test lint lint-strict format generate tidy publish-release profile-mem profile-mem-ui
 
 PROFILE_DIR ?= .profiles
 BENCH_PKG ?= ./wdl
 BENCH_PATTERN ?= .
 BENCH_COUNT ?= 5
+RELEASE_BRANCH ?= main
+VERSION ?= $(shell tr -d '[:space:]' < version 2>/dev/null)
 
 clean:
 	@go clean ./...
@@ -25,6 +27,35 @@ generate:
 
 tidy:
 	@go mod tidy
+
+publish-release:
+	@VERSION="$(VERSION)"; \
+	if [ -z "$$VERSION" ]; then \
+		echo "ERROR: set version to a value like v0.1.0"; \
+		echo "You can also override on the command line: make publish-release VERSION=v0.1.0"; \
+		exit 1; \
+	fi; \
+	if ! echo "$$VERSION" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+'; then \
+		echo "ERROR: VERSION must look like vX.Y.Z (example: v0.1.0), got $$VERSION"; \
+		exit 1; \
+	fi; \
+	BRANCH=$$(git rev-parse --abbrev-ref HEAD); \
+	if [ "$$BRANCH" != "$(RELEASE_BRANCH)" ]; then \
+		echo "ERROR: releases must be cut from '$(RELEASE_BRANCH)'; current branch is '$$BRANCH'"; \
+		exit 1; \
+	fi; \
+	if ! command -v gh >/dev/null 2>&1; then \
+		echo "ERROR: GitHub CLI (gh) is required to cut a release."; \
+		exit 1; \
+	fi; \
+	if git rev-parse "$$VERSION" >/dev/null 2>&1 || git ls-remote --tags origin "refs/tags/$$VERSION" | grep -q .; then \
+		echo "ERROR: tag $$VERSION already exists."; \
+		exit 1; \
+	fi; \
+	echo "Creating annotated tag $$VERSION and GitHub release..."; \
+	git tag -a "$$VERSION" -m "$$VERSION"; \
+	git push origin "$$VERSION"; \
+	gh release create "$$VERSION" --title "$$VERSION" --generate-notes
 
 profile-mem:
 	@mkdir -p $(PROFILE_DIR)

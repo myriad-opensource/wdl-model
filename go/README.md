@@ -21,6 +21,20 @@ The module path uses `wdl-model` to match repository naming:
 
 Go package identifiers cannot contain `-`, so the public package is intentionally named `wdl`.
 
+## Using In Your Project
+
+Add the module to your project with a pinned version:
+
+```bash
+go get github.com/myriad-opensource/wdl-model/go@v0.1.0
+```
+
+Then import it in your code:
+
+```go
+import "github.com/myriad-opensource/wdl-model/go/wdl"
+```
+
 ## Generated Parser Code
 
 Generated ANTLR parser code is isolated in a dedicated package:
@@ -108,4 +122,32 @@ validator := wdl.NewLintingValidator(wdl.SemanticValidatorConfig{ThrowOnWarnings
 if err := validator.Validate(ctx, doc); err != nil {
     // handle validation diagnostics
 }
+```
+
+## Releasing
+
+Set the release version in `version` (example `v0.1.0`), then run:
+
+Note: Go modules are versioned by git tags, not prerelease package channels. The `version` file is the next tag to publish.
+
+```bash
+make publish-release
+```
+
+What this does:
+
+- Creates an annotated git tag.
+- Pushes the tag to origin.
+- Creates a GitHub Release for that tag.
+
+The target also checks that:
+
+- You are on the release branch (default `main`).
+- The tag does not already exist.
+- `gh` CLI is installed.
+
+Tip: you can still override the version manually when needed:
+
+```bash
+make publish-release VERSION=v0.1.0
 ```
