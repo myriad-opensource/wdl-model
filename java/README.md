@@ -6,6 +6,31 @@ This is a general-purpose library for building WDL tools. You can use it to read
 
 The Java library has its own test coverage for parsing, validation, processing, and fixture behavior.
 
+## Using In Your Project
+
+This library is published to GitHub Packages Maven registry.
+
+Add the dependency:
+
+```xml
+<dependency>
+	<groupId>com.myriad.wdl</groupId>
+	<artifactId>wdl-model</artifactId>
+	<version>0.0.1</version>
+</dependency>
+```
+
+And add the GitHub Packages repository:
+
+```xml
+<repository>
+	<id>github</id>
+	<url>https://maven.pkg.github.com/myriad-opensource/wdl-model</url>
+</repository>
+```
+
+If the repository is private, configure credentials for server id `github` in your Maven `settings.xml`.
+
 ## What This Library Does
 
 This library helps you:
@@ -96,3 +121,23 @@ new WdlLintingValidator().setThrowOnWarnings(false).validate(document);
 ```
 
 If you only need the parsed model, stop after `WdlV1Loader.load(...)`.
+
+## Releasing
+
+The release version comes from `pom.xml`.
+
+For prerelease publishing, set a `-SNAPSHOT` version and run:
+
+```bash
+make publish-prerelease
+```
+
+This publishes the snapshot package to GitHub Packages and does not create a git tag or GitHub release.
+
+For a full release, set a non-SNAPSHOT version and run:
+
+```bash
+make publish-release
+```
+
+This publishes the Maven package, creates an annotated git tag named `java-<version>`, and creates a GitHub Release for that tag.
