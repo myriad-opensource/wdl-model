@@ -136,7 +136,7 @@ make publish-release
 
 What this does:
 
-- Creates an annotated git tag.
+- Creates an annotated git tag named `go-<version>` (example: `go-v0.1.0`).
 - Pushes the tag to origin.
 - Creates a GitHub Release for that tag.
 

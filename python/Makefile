@@ -2,8 +2,9 @@ ANTLR_VERSION ?= 4.13.2
 PROFILE_DIR ?= .profiles
 PROFILE_ITERATIONS ?= 3000
 PROFILE_WARMUP ?= 100
+RELEASE_BRANCH ?= main
 
-.PHONY: install lock clean-grammar clean build test package lint format check generate-grammar write-spec-examples profile-mem profile-mem-ui
+.PHONY: install lock clean-grammar clean build test package publish-release lint format check generate-grammar write-spec-examples profile-mem profile-mem-ui
 
 install:
 	poetry install
@@ -22,6 +23,31 @@ test: build
 
 package: build
 	poetry build
+
+publish-release: build
+	@VERSION=$$(poetry version -s); \
+	if [ -z "$$VERSION" ]; then \
+		echo "ERROR: could not read version from pyproject.toml"; \
+		exit 1; \
+	fi; \
+	BRANCH=$$(git rev-parse --abbrev-ref HEAD); \
+	if [ "$$BRANCH" != "$(RELEASE_BRANCH)" ]; then \
+		echo "ERROR: releases must be cut from '$(RELEASE_BRANCH)'; current branch is '$$BRANCH'"; \
+		exit 1; \
+	fi; \
+	if ! command -v gh >/dev/null 2>&1; then \
+		echo "ERROR: GitHub CLI (gh) is required to cut a release."; \
+		exit 1; \
+	fi; \
+	TAG_NAME=python-$$VERSION; \
+	if git rev-parse "$$TAG_NAME" >/dev/null 2>&1 || git ls-remote --tags origin "refs/tags/$$TAG_NAME" | grep -q .; then \
+		echo "ERROR: tag $$TAG_NAME already exists. Bump version in pyproject.toml before releasing again."; \
+		exit 1; \
+	fi; \
+	echo "Creating annotated tag $$TAG_NAME and GitHub release..."; \
+	git tag -a "$$TAG_NAME" -m "$$TAG_NAME"; \
+	git push origin "$$TAG_NAME"; \
+	gh release create "$$TAG_NAME" --title "$$TAG_NAME" --generate-notes
 
 lint:
 	poetry run ruff check src tests

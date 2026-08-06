@@ -54,7 +54,7 @@ publish-release: build
 		echo "ERROR: GitHub CLI (gh) is required to cut a release."; \
 		exit 1; \
 	fi; \
-	TAG_NAME=v$$VERSION; \
+	TAG_NAME=typescript-$$VERSION; \
 	if git rev-parse "$$TAG_NAME" >/dev/null 2>&1 || git ls-remote --tags origin "refs/tags/$$TAG_NAME" | grep -q .; then \
 		echo "ERROR: tag $$TAG_NAME already exists. Bump version before publishing again."; \
 		exit 1; \

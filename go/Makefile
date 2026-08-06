@@ -48,14 +48,15 @@ publish-release:
 		echo "ERROR: GitHub CLI (gh) is required to cut a release."; \
 		exit 1; \
 	fi; \
-	if git rev-parse "$$VERSION" >/dev/null 2>&1 || git ls-remote --tags origin "refs/tags/$$VERSION" | grep -q .; then \
-		echo "ERROR: tag $$VERSION already exists."; \
+	TAG_NAME=go-$$VERSION; \
+	if git rev-parse "$$TAG_NAME" >/dev/null 2>&1 || git ls-remote --tags origin "refs/tags/$$TAG_NAME" | grep -q .; then \
+		echo "ERROR: tag $$TAG_NAME already exists."; \
 		exit 1; \
 	fi; \
-	echo "Creating annotated tag $$VERSION and GitHub release..."; \
-	git tag -a "$$VERSION" -m "$$VERSION"; \
-	git push origin "$$VERSION"; \
-	gh release create "$$VERSION" --title "$$VERSION" --generate-notes
+	echo "Creating annotated tag $$TAG_NAME and GitHub release..."; \
+	git tag -a "$$TAG_NAME" -m "$$TAG_NAME"; \
+	git push origin "$$TAG_NAME"; \
+	gh release create "$$TAG_NAME" --title "$$TAG_NAME" --generate-notes
 
 profile-mem:
 	@mkdir -p $(PROFILE_DIR)

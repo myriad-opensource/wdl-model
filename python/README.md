@@ -6,6 +6,29 @@ This is a general-purpose package for building WDL tools. You can use it to pars
 
 The Python library has its own test coverage for parsing, validation, processing, and fixture behavior.
 
+## Using In Your Project
+
+Use the git tag and `python` subdirectory in your dependency declaration.
+
+`pyproject.toml` example:
+
+```toml
+[project]
+dependencies = [
+	"wdl-model @ git+https://github.com/myriad-opensource/wdl-model.git@python-0.0.1b0#subdirectory=python"
+]
+```
+
+Poetry-style example:
+
+```toml
+[tool.poetry.dependencies]
+wdl-model = { git = "https://github.com/myriad-opensource/wdl-model.git", tag = "python-0.0.1b0", subdirectory = "python" }
+```
+
+Exact syntax depends on your package manager, but the source, tag, and subdirectory are the same.
+You can also point to a branch name or commit hash instead of a release tag.
+
 ## What This Library Does
 
 This library helps you:
@@ -85,3 +108,24 @@ WdlLintingSemanticValidator().setThrowOnWarnings(False).validateDocument(documen
 ```
 
 If you only need the parsed model, stop after loading.
+
+## Releasing
+
+Set the version in `pyproject.toml`, then run:
+
+```bash
+make publish-release
+```
+
+What this does:
+
+- Reads the version from `pyproject.toml` using `poetry version -s`.
+- Creates an annotated git tag named `python-<version>`.
+- Pushes the tag to origin.
+- Creates a GitHub Release for that tag.
+
+The target also checks that:
+
+- You are on the release branch (default `main`).
+- The tag does not already exist.
+- `gh` CLI is installed.

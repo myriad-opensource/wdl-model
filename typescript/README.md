@@ -163,7 +163,7 @@ make publish-release
 What happens:
 
 - Publishes the npm package to GitHub Packages with the `latest` tag.
-- Creates and pushes git tag `v<version>`.
+- Creates and pushes git tag `typescript-<version>`.
 - Creates a GitHub Release in the project Releases page for that tag.
 
 ### Quick Safety Notes
