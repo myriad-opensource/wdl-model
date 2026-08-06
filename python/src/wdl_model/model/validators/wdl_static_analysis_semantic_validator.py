@@ -45,7 +45,12 @@ from .wdl_semantic_validator import WdlSemanticValidator
 
 
 class WdlStaticAnalysisSemanticValidator(WdlSemanticValidator):
-    """Static-analysis validator that extends baseline semantics with deterministic extra checks."""
+    """Static-analysis validator with deterministic whole-document checks.
+
+    This class intentionally keeps static checks separate from baseline semantic
+    checks so callers can choose stricter validation without changing parse/load
+    behavior.
+    """
 
     _FUNCTION_SIGNATURES: dict[WdlFunction, list[tuple[str, ...]]] = {
         WdlFunction.FLOOR: [("NUMBER",)],
@@ -172,6 +177,13 @@ class WdlStaticAnalysisSemanticValidator(WdlSemanticValidator):
         self._known_type_names: set[str] = set()
 
     def validateDocument(self, document: WdlDocument) -> None:
+        """Run static analysis, then baseline semantic validation.
+
+        Maintainer note:
+        - Names are pre-indexed (including imports) so checks are deterministic.
+        - Duplicate detection is scoped by declaration kind.
+        """
+
         self._known_callable_targets = set()
         self._known_type_names = set()
         top_level_names: set[str] = set()

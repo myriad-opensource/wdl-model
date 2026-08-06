@@ -35,6 +35,8 @@ import {
 import { WdlSemanticValidator } from './wdl-semantic-validator.js';
 
 export class WdlStaticAnalysisSemanticValidator extends WdlSemanticValidator {
+  // Signature and arity tables intentionally live in this class (not global
+  // helpers) so language-level static policy is easy to evolve in one place.
   private readonly functionSignatures = new Map<WdlFunction, readonly string[][]>([
     [WdlFunction.FLOOR, [['NUMBER']]],
     [WdlFunction.CEIL, [['NUMBER']]],
@@ -163,7 +165,15 @@ export class WdlStaticAnalysisSemanticValidator extends WdlSemanticValidator {
   private knownCallableTargets = new Set<string>();
   private knownTypeNames = new Set<string>();
 
-  /** Runs baseline semantic validation plus stricter static-analysis checks. */
+  /**
+   * Runs static-analysis checks, then baseline semantic validation.
+   *
+   * Maintainer note:
+   * - We pre-index top-level and imported names before traversal so reference
+   *   checks are deterministic and order-independent.
+   * - Duplicate keys include declaration kind (task/workflow/struct/enum) to
+   *   avoid treating same-name cross-kind declarations as duplicates.
+   */
   public override validateDocument(document: WdlDocument): void {
     this.knownCallableTargets = new Set();
     this.knownTypeNames = new Set();

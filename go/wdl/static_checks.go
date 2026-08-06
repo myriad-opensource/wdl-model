@@ -12,6 +12,12 @@ type staticSymbolTable struct {
 	importedCallables map[string]struct{}
 }
 
+// buildStaticSymbolTable collects visibility information used by static checks.
+//
+// Maintainer note:
+// This table models names that are visible during workflow analysis, including
+// imported aliases and star-import exports. It intentionally does not try to
+// model control-flow-dependent visibility.
 func buildStaticSymbolTable(doc *Document) staticSymbolTable {
 	tasks := map[string]struct{}{}
 	types := map[string]struct{}{}
@@ -73,6 +79,12 @@ func buildStaticSymbolTable(doc *Document) staticSymbolTable {
 	}
 }
 
+// staticDiagnostics composes deterministic static passes that run after
+// baseline semantic validation.
+//
+// The order is intentional: function-version gates and expression typing run
+// before workflow structure checks so downstream checks can rely on richer
+// expression diagnostics already being present.
 func staticDiagnostics(doc *Document) []Diagnostic {
 	root, ok := doc.ParseTree.(grammar.IDocumentContext)
 	if !ok || root == nil {
@@ -96,6 +108,8 @@ func staticDiagnostics(doc *Document) []Diagnostic {
 	return diagnostics
 }
 
+// versionGatedFunctionDiagnostics reports calls that are valid syntax but not
+// available in the current WDL language version.
 func versionGatedFunctionDiagnostics(root grammar.IDocumentContext, version Version) []Diagnostic {
 	type gate struct {
 		minVersion Version

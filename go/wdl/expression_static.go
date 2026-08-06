@@ -8,6 +8,17 @@ import (
 	grammar "github.com/myriad-opensource/wdl-model/go/grammar/wdl1"
 )
 
+// This file intentionally implements a lightweight static type system that is
+// separate from runtime expression evaluation.
+//
+// Maintainer note:
+// - The validator is conservative: "unknown" avoids false positives when local
+//   information is incomplete.
+// - Workflow scopes are cloned across scatter/conditional branches so branch
+//   declarations do not leak into siblings.
+// - Diagnostics are emitted where declarations/expressions are seen rather than
+//   deferred, to keep error locations intuitive for users.
+
 type staticTypeKind string
 
 const (
@@ -52,6 +63,10 @@ func expressionStaticDiagnostics(root grammar.IDocumentContext, version Version)
 	return diagnostics
 }
 
+// validateWorkflowExpressions applies expression checks to workflow content.
+//
+// Tasks are validated by other layers. Keeping workflow checks here avoids
+// duplicated declaration-scope logic and keeps static analysis deterministic.
 func validateWorkflowExpressions(workflow grammar.IWorkflowDefinitionContext, version Version) []Diagnostic {
 	scope := map[string]staticType{}
 	diagnostics := make([]Diagnostic, 0)
@@ -117,6 +132,11 @@ func validateWorkflowStatementExpressions(statements []grammar.IWorkflowStatemen
 	return diagnostics
 }
 
+// validateDeclarationExpression checks assignment compatibility and updates the
+// current type scope with the declaration's type.
+//
+// The scope update always happens, even when assignment mismatches are found,
+// so later diagnostics can continue with the declared type information.
 func validateDeclarationExpression(unbound grammar.IUnboundDeclarationContext, bound grammar.IBoundDeclarationContext, scope map[string]staticType, version Version) []Diagnostic {
 	var declaredName string
 	var declaredTypeCtx grammar.ITypeContext
