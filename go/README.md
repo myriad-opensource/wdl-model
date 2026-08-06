@@ -95,7 +95,7 @@ By default, warning-only lint diagnostics do not fail validation. Set `ThrowOnWa
 
 ```go
 resolver, _ := wdl.NewDefaultResolver(wdl.ResolverConfig{})
-loader := wdl.NewLoader()
+loader := wdl.NewWdlV1Loader()
 
 doc, err := loader.LoadFile(ctx, "workflow.wdl", wdl.WithResolver(resolver))
 if err != nil {

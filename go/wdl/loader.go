@@ -10,7 +10,7 @@ import (
 	grammar "github.com/myriad-opensource/wdl-model/go/grammar/wdl1"
 )
 
-// LoadOptions controls how Loader parses, resolves imports, and validates.
+// LoadOptions controls how WdlV1Loader parses, resolves imports, and validates.
 type LoadOptions struct {
 	// SourceLocation is the origin of source text being parsed.
 	//
@@ -28,6 +28,8 @@ type LoadOptions struct {
 	//
 	// A value <= 0 disables this limit.
 	MaxImportDepth int
+	// resolverExplicit tracks whether callers set resolver intent, including nil.
+	resolverExplicit bool
 }
 
 // LoadOption updates LoadOptions.
@@ -42,7 +44,10 @@ func WithSourceLocation(location string) LoadOption {
 
 // WithResolver sets the resolver used for import statements.
 func WithResolver(resolver Resolver) LoadOption {
-	return func(o *LoadOptions) { o.Resolver = resolver }
+	return func(o *LoadOptions) {
+		o.Resolver = resolver
+		o.resolverExplicit = true
+	}
 }
 
 // WithValidator sets the validator executed after loading.
@@ -55,22 +60,42 @@ func WithMaxImportDepth(max int) LoadOption {
 	return func(o *LoadOptions) { o.MaxImportDepth = max }
 }
 
-// Loader parses WDL source and optionally resolves imports recursively.
-type Loader struct{}
+// WdlV1Loader parses WDL 1.x source and optionally resolves imports recursively.
+type WdlV1Loader struct{}
+
+// Loader is a backward-compatible alias for WdlV1Loader.
+//
+// Deprecated: use WdlV1Loader/NewWdlV1Loader to make version intent explicit.
+type Loader = WdlV1Loader
+
+// NewWdlV1Loader creates a WDL 1.x loader with no internal state.
+//
+// Create one when you want method-style loading calls; package helpers use this
+// constructor internally.
+func NewWdlV1Loader() *WdlV1Loader { return &WdlV1Loader{} }
 
 // NewLoader creates a Loader with no internal state.
 //
 // Create one when you want method-style loading calls; package helpers use this
 // constructor internally.
-func NewLoader() *Loader { return &Loader{} }
+//
+// Deprecated: use NewWdlV1Loader.
+func NewLoader() *Loader { return NewWdlV1Loader() }
 
 // LoadString parses source text, resolves imports, and optionally validates.
 //
 // Import cycles are guarded by a visited set keyed by resolved location.
-func (l *Loader) LoadString(ctx context.Context, source string, options ...LoadOption) (*Document, error) {
+func (l *WdlV1Loader) LoadString(ctx context.Context, source string, options ...LoadOption) (*Document, error) {
 	opts := defaultLoadOptions()
 	for _, option := range options {
 		option(&opts)
+	}
+	if !opts.resolverExplicit {
+		resolver, err := NewDefaultResolver(ResolverConfig{})
+		if err != nil {
+			return nil, err
+		}
+		opts.Resolver = resolver
 	}
 	visited := map[string]struct{}{}
 	doc, err := l.loadRecursive(ctx, source, opts.SourceLocation, opts, 0, visited)
@@ -89,7 +114,7 @@ func (l *Loader) LoadString(ctx context.Context, source string, options ...LoadO
 //
 // SourceLocation is set to the absolute file path so relative imports resolve
 // from the file's directory.
-func (l *Loader) LoadFile(ctx context.Context, path string, options ...LoadOption) (*Document, error) {
+func (l *WdlV1Loader) LoadFile(ctx context.Context, path string, options ...LoadOption) (*Document, error) {
 	absPath, err := filepath.Abs(path)
 	if err != nil {
 		return nil, err
@@ -102,7 +127,7 @@ func (l *Loader) LoadFile(ctx context.Context, path string, options ...LoadOptio
 	return l.LoadString(ctx, string(buf), options...)
 }
 
-func (l *Loader) loadRecursive(
+func (l *WdlV1Loader) loadRecursive(
 	ctx context.Context,
 	source string,
 	sourceLocation string,
@@ -157,8 +182,7 @@ func (l *Loader) loadRecursive(
 }
 
 func defaultLoadOptions() LoadOptions {
-	resolver, _ := NewDefaultResolver(ResolverConfig{})
-	return LoadOptions{Resolver: resolver, MaxImportDepth: 256}
+	return LoadOptions{MaxImportDepth: 256}
 }
 
 type syntaxErrorCollector struct {

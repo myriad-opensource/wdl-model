@@ -355,6 +355,18 @@ type namedLocation struct {
 	Column int
 }
 
+type deprecationRule struct {
+	re      *regexp.Regexp
+	message string
+}
+
+var sourceDeprecationRules = []deprecationRule{
+	{re: regexp.MustCompile(`(?m)^\s*runtime\s*\{`), message: "deprecated runtime section usage"},
+	{re: regexp.MustCompile(`\bObject\??\b`), message: "deprecated Object type usage"},
+	{re: regexp.MustCompile(`(?m)^\s*docker\s*:`), message: "deprecated requirements key docker; prefer container"},
+	{re: regexp.MustCompile(`~\{\s*sep\s*=`), message: "deprecated placeholder option form"},
+}
+
 func identifierUsageCount(source string, name string) int {
 	if name == "" {
 		return 0
@@ -463,20 +475,8 @@ func stripImportLines(source string) string {
 }
 
 func sourceDeprecationDiagnostics(source string) []Diagnostic {
-	type depRule struct {
-		re      *regexp.Regexp
-		message string
-	}
-
-	rules := []depRule{
-		{re: regexp.MustCompile(`(?m)^\s*runtime\s*\{`), message: "deprecated runtime section usage"},
-		{re: regexp.MustCompile(`\bObject\??\b`), message: "deprecated Object type usage"},
-		{re: regexp.MustCompile(`(?m)^\s*docker\s*:`), message: "deprecated requirements key docker; prefer container"},
-		{re: regexp.MustCompile(`~\{\s*sep\s*=`), message: "deprecated placeholder option form"},
-	}
-
 	diagnostics := make([]Diagnostic, 0)
-	for _, rule := range rules {
+	for _, rule := range sourceDeprecationRules {
 		matches := rule.re.FindAllStringIndex(source, -1)
 		for _, m := range matches {
 			line, col := offsetToLineCol(source, m[0])
