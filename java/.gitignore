@@ -5,3 +5,9 @@ dependency-reduced-pom.xml
 /.settings
 /bin/
 *.iml
+.DS_Store
+
+# Benchmark/profiling artifacts
+.profiles/
+*.jfr
+bench*.txt
