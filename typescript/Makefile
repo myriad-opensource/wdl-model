@@ -30,7 +30,7 @@ package: build
 
 publish: publish-prerelease
 
-publish-prerelease: build
+publish-prerelease: lint test
 	@VERSION=$$(node -p "require('./package.json').version"); \
 	if ! echo "$$VERSION" | grep -qi 'beta'; then \
 		echo "ERROR: publish-prerelease expects a beta version, got $$VERSION"; \
@@ -39,7 +39,7 @@ publish-prerelease: build
 	echo "Publishing npm package $$VERSION with tag beta..."; \
 	$(NPM) publish --tag beta
 
-publish-release: build
+publish-release: lint test
 	@VERSION=$$(node -p "require('./package.json').version"); \
 	if echo "$$VERSION" | grep -qi 'beta'; then \
 		echo "ERROR: publish-release requires a non-beta version, got $$VERSION"; \

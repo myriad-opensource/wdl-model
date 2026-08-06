@@ -16,7 +16,7 @@ test:
 package:
 	@mvn clean package
 
-publish-prerelease:
+publish-prerelease: lint test
 	@VERSION=$$(mvn -q -DforceStdout help:evaluate -Dexpression=project.version); \
 	if ! echo "$$VERSION" | grep -q -- '-SNAPSHOT$$'; then \
 		echo "ERROR: publish-prerelease requires a -SNAPSHOT version in pom.xml, got $$VERSION"; \
@@ -25,7 +25,7 @@ publish-prerelease:
 	echo "Publishing Maven snapshot $$VERSION to GitHub Packages..."; \
 	mvn deploy
 
-publish-release:
+publish-release: lint test
 	@VERSION=$$(mvn -q -DforceStdout help:evaluate -Dexpression=project.version); \
 	if echo "$$VERSION" | grep -q -- '-SNAPSHOT$$'; then \
 		echo "ERROR: publish-release requires a non-SNAPSHOT version in pom.xml, got $$VERSION"; \

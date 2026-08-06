@@ -24,7 +24,7 @@ test: build
 package: build
 	poetry build
 
-publish-release: build
+publish-release: lint test package
 	@VERSION=$$(poetry version -s); \
 	if [ -z "$$VERSION" ]; then \
 		echo "ERROR: could not read version from pyproject.toml"; \

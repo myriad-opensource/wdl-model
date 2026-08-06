@@ -28,7 +28,7 @@ generate:
 tidy:
 	@go mod tidy
 
-publish-release:
+publish-release: lint test
 	@VERSION="$(VERSION)"; \
 	if [ -z "$$VERSION" ]; then \
 		echo "ERROR: set version to a value like v0.1.0"; \
