@@ -179,8 +179,10 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.antlr.v4.runtime.BaseErrorListener;
 import org.antlr.v4.runtime.CharStream;
 import org.antlr.v4.runtime.CommonTokenFactory;
@@ -222,7 +224,8 @@ public class WdlV1Loader extends WdlV1ParserBaseVisitor<Void> {
     WdlDocument document = parseDocument(input, currentDocumentLocation);
 
     if (importResolver != null) {
-      resolveImportsRecursive(document, importResolver, new HashMap<>(), new ArrayDeque<>());
+      resolveImportsRecursive(
+          document, importResolver, new HashMap<>(), new ArrayDeque<>(), new HashSet<>());
     }
     if (validator != null) {
       validator.validate(document);
@@ -340,13 +343,15 @@ public class WdlV1Loader extends WdlV1ParserBaseVisitor<Void> {
       WdlDocument document,
       WdlImportResolverBase importResolver,
       Map<String, WdlDocument> loadedById,
-      ArrayDeque<String> activeImportStack)
+      ArrayDeque<String> activeImportStack,
+      Set<String> activeImportSet)
       throws WdlException {
     URI currentSourceLocation = document.getSourceLocation();
     String currentDocumentIdentifier =
         currentSourceLocation != null ? currentSourceLocation.toString() : null;
     if (currentDocumentIdentifier != null) {
       activeImportStack.addLast(currentDocumentIdentifier);
+      activeImportSet.add(currentDocumentIdentifier);
       loadedById.putIfAbsent(currentDocumentIdentifier, document);
     }
 
@@ -366,7 +371,7 @@ public class WdlV1Loader extends WdlV1ParserBaseVisitor<Void> {
             resolvedImportLocation != null ? resolvedImportLocation.toString() : importReference;
         imp.setImportIdentifier(importIdentifier);
 
-        if (activeImportStack.contains(importIdentifier)) {
+        if (activeImportSet.contains(importIdentifier)) {
           throw circularImportException(activeImportStack, importIdentifier);
         }
 
@@ -380,7 +385,12 @@ public class WdlV1Loader extends WdlV1ParserBaseVisitor<Void> {
                   org.antlr.v4.runtime.CharStreams.fromString(importSourceText),
                   resolvedImportLocation);
           loadedById.put(importIdentifier, importedDocument);
-          resolveImportsRecursive(importedDocument, importResolver, loadedById, activeImportStack);
+            resolveImportsRecursive(
+              importedDocument,
+              importResolver,
+              loadedById,
+              activeImportStack,
+              activeImportSet);
         }
 
         document.importedDocuments().put(importIdentifier, importedDocument);
@@ -389,6 +399,7 @@ public class WdlV1Loader extends WdlV1ParserBaseVisitor<Void> {
       if (currentDocumentIdentifier != null
           && currentDocumentIdentifier.equals(activeImportStack.peekLast())) {
         activeImportStack.removeLast();
+        activeImportSet.remove(currentDocumentIdentifier);
       }
     }
   }
