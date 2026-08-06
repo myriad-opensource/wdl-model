@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
+from wdl_model.model.errors import WdlImportException
 from wdl_model.model import WdlSemanticValidator, WdlV1Loader
 from wdl_model.model.resolvers import WdlImportResolverFilesystem
 
@@ -49,3 +52,25 @@ def test_loads_from_source_code_with_source_location_resolver_then_validator() -
     assert len(root_doc.importStatements()) == 1
     assert len(root_doc.importedDocuments()) == 1
     assert next(iter(root_doc.importedDocuments().values())) is not None
+
+
+def test_throws_on_direct_circular_imports() -> None:
+    root = FIXTURES_ROOT / "circular" / "root.wdl"
+
+    with pytest.raises(WdlImportException) as exc_info:
+        WdlV1Loader.load_from_file(root)
+
+    message = exc_info.value.toDebugMessage()
+    assert "Circular import detected" in message
+    assert "child.wdl" in message
+
+
+def test_throws_on_circular_imports_with_relative_path_normalization() -> None:
+    root = FIXTURES_ROOT / "circular_relative" / "root.wdl"
+
+    with pytest.raises(WdlImportException) as exc_info:
+        WdlV1Loader.load_from_file(root)
+
+    message = exc_info.value.toDebugMessage()
+    assert "Circular import detected" in message
+    assert "root.wdl" in message

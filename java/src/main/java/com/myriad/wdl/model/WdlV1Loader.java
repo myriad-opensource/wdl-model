@@ -385,12 +385,8 @@ public class WdlV1Loader extends WdlV1ParserBaseVisitor<Void> {
                   org.antlr.v4.runtime.CharStreams.fromString(importSourceText),
                   resolvedImportLocation);
           loadedById.put(importIdentifier, importedDocument);
-            resolveImportsRecursive(
-              importedDocument,
-              importResolver,
-              loadedById,
-              activeImportStack,
-              activeImportSet);
+          resolveImportsRecursive(
+              importedDocument, importResolver, loadedById, activeImportStack, activeImportSet);
         }
 
         document.importedDocuments().put(importIdentifier, importedDocument);

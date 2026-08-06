@@ -27,7 +27,7 @@ from .definitions import (
     WdlTask,
     WdlWorkflow,
 )
-from .errors import WdlException, WdlSyntaxError
+from .errors import WdlException, WdlImportException, WdlSyntaxError
 from .expressions import (
     Delimiter,
     PlaceHolderSymbol,
@@ -156,7 +156,7 @@ class WdlV1Loader(WdlV1ParserVisitor):
         """Parse an ANTLR input stream into a ``WdlDocument`` and optionally validate it."""
         document = cls._parse_document(input_stream, current_document_location)
         if import_resolver is not None:
-            cls._resolve_imports_recursive(document, import_resolver, {})
+            cls._resolve_imports_recursive(document, import_resolver, {}, [], set())
         if validator is not None:
             validator.validateDocument(document)
         return document
@@ -223,41 +223,60 @@ class WdlV1Loader(WdlV1ParserVisitor):
         document: WdlDocument,
         import_resolver: WdlImportResolverBase,
         loaded_by_id: dict[str, WdlDocument],
+        active_import_stack: list[str],
+        active_import_set: set[str],
     ) -> None:
         current_source_location = document.getSourceLocation()
         if current_source_location is not None:
+            active_import_stack.append(current_source_location)
+            active_import_set.add(current_source_location)
             loaded_by_id.setdefault(current_source_location, document)
 
-        document.importedDocuments().clear()
-        current_location = document.getSourceLocation()
-        for imp in document.importStatements():
-            source_literal = imp.source
-            if source_literal is None:
-                continue
+        try:
+            document.importedDocuments().clear()
+            current_location = document.getSourceLocation()
+            for imp in document.importStatements():
+                source_literal = imp.source
+                if source_literal is None:
+                    continue
 
-            import_reference = cls._extract_string_literal_text(source_literal)
-            resolved_import_location = import_resolver.resolve_import_location(
-                current_location, import_reference
-            )
-            import_identifier = resolved_import_location or import_reference
-            imp.importIdentifier = import_identifier
-
-            import_source_text = import_resolver.resolve_import(
-                current_location, import_reference
-            )
-            imp.sourceText = import_source_text
-
-            imported_document = loaded_by_id.get(import_identifier)
-            if imported_document is None:
-                imported_document = cls._parse_document(
-                    InputStream(import_source_text), resolved_import_location
+                import_reference = cls._extract_string_literal_text(source_literal)
+                resolved_import_location = import_resolver.resolve_import_location(
+                    current_location, import_reference
                 )
-                loaded_by_id[import_identifier] = imported_document
-                cls._resolve_imports_recursive(
-                    imported_document, import_resolver, loaded_by_id
-                )
+                import_identifier = resolved_import_location or import_reference
+                imp.importIdentifier = import_identifier
 
-            document.importedDocuments()[import_identifier] = imported_document
+                if import_identifier in active_import_set:
+                    raise WdlImportException(
+                        f"Circular import detected: {' -> '.join([*active_import_stack, import_identifier])}",
+                        import_identifier,
+                    )
+
+                import_source_text = import_resolver.resolve_import(
+                    current_location, import_reference
+                )
+                imp.sourceText = import_source_text
+
+                imported_document = loaded_by_id.get(import_identifier)
+                if imported_document is None:
+                    imported_document = cls._parse_document(
+                        InputStream(import_source_text), resolved_import_location
+                    )
+                    loaded_by_id[import_identifier] = imported_document
+                    cls._resolve_imports_recursive(
+                        imported_document,
+                        import_resolver,
+                        loaded_by_id,
+                        active_import_stack,
+                        active_import_set,
+                    )
+
+                document.importedDocuments()[import_identifier] = imported_document
+        finally:
+            if current_source_location is not None:
+                active_import_stack.pop()
+                active_import_set.discard(current_source_location)
 
     @staticmethod
     def _extract_string_literal_text(source_literal: WdlStringLiteral) -> str:

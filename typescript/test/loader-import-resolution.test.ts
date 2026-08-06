@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 import {
+  WdlImportException,
   WdlImportResolverFilesystem,
   WdlSemanticValidator,
   WdlV1Loader,
@@ -49,5 +50,35 @@ describe('TypeScript loader import resolution', () => {
     expect(rootDoc.importStatements().length).toBe(1);
     expect(rootDoc.importedDocuments().size).toBe(1);
     expect([...rootDoc.importedDocuments().values()][0]).toBeDefined();
+  });
+
+  it('throws on direct circular imports', () => {
+    const root = fixture('loader_imports', 'circular', 'root.wdl');
+
+    let thrown: unknown;
+    try {
+      WdlV1NodeLoader.loadFromFile(root);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(WdlImportException);
+    expect((thrown as WdlImportException).toDebugMessage()).toContain('Circular import detected');
+    expect((thrown as WdlImportException).toDebugMessage()).toContain('child.wdl');
+  });
+
+  it('throws on circular imports with relative path normalization', () => {
+    const root = fixture('loader_imports', 'circular_relative', 'root.wdl');
+
+    let thrown: unknown;
+    try {
+      WdlV1NodeLoader.loadFromFile(root);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(WdlImportException);
+    expect((thrown as WdlImportException).toDebugMessage()).toContain('Circular import detected');
+    expect((thrown as WdlImportException).toDebugMessage()).toContain('root.wdl');
   });
 });
