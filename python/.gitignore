@@ -142,3 +142,9 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# Benchmark/profiling artifacts
+.profiles/
+*.prof
+bench*.txt
+cpu-top.txt
