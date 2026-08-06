@@ -2,7 +2,9 @@
 name = "wdl-model"
 version = "0.0.1b0"
 description = "TODO"
-authors = ["Your Name <you@example.com>"]
+license = "MIT"
+authors = ["Art Gramlich <art.gramlich@myriad.com>"]
+maintainers = ["Art Gramlich <art.gramlich@myriad.com>"]
 readme = "README.md"
 packages = [{ include = "wdl_model", from = "src" }]
 

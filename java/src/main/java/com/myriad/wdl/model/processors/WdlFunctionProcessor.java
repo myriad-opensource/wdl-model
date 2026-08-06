@@ -8,7 +8,7 @@ public interface WdlFunctionProcessor {
   /** Process a function-call expression. Implementations own traversal strategy. */
   void processFunctionCall(WdlFunctionCallOperation functionCall);
 
-  /** Dispatch helper based on {@link WdlFunctionCallOperation#getFunction()}. */
+  /** Dispatch helper based on the resolved function enum in the call operation. */
   default void dispatchByFunction(WdlFunctionCallOperation functionCall) {
     if (functionCall == null) {
       return;

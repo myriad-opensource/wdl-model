@@ -1,6 +1,5 @@
 # TODO!
 
-* Packaging
 * Publishing
 
 * Review WdlFunction and all validators

@@ -17,7 +17,8 @@ test:
 	$(NPM) test
 
 package:
-	echo FIXME
+	$(NPM) run build
+	$(NPM) pack
 
 lint:
 	$(NPM) run lint

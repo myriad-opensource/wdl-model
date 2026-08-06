@@ -6,6 +6,29 @@
 	<groupId>com.myriad.wdl</groupId>
 	<artifactId>wdl-model</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
+	<name>wdl-model</name>
+	<description>WDL object model with optional validation layers</description>
+	<inceptionYear>2026</inceptionYear>
+
+	<organization>
+		<name>Myriad Genetics, Inc.</name>
+	</organization>
+
+	<licenses>
+		<license>
+			<name>MIT License</name>
+			<url>https://opensource.org/license/mit/</url>
+			<distribution>repo</distribution>
+		</license>
+	</licenses>
+
+	<developers>
+		<developer>
+			<name>Art Gramlich</name>
+			<email>art.gramlich@myriad.com</email>
+			<organization>Myriad Genetics, Inc.</organization>
+		</developer>
+	</developers>
 
 	<properties>
 		<antlr4.version>4.13.2</antlr4.version>
