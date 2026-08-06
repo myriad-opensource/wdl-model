@@ -461,7 +461,7 @@ public class WdlV1Loader extends WdlV1ParserBaseVisitor<Void> {
       // This should never happen
       throw new AssertionError("Stack is empty");
     }
-    if (stack.size() != 1 && !(stack.peek() instanceof WdlDocument)) {
+    if (stack.size() != 1 || !(stack.peek() instanceof WdlDocument)) {
       // This should never happen
       throw new AssertionError("Stack does not contain exactly one WdlDocument");
     }
