@@ -12,9 +12,6 @@ test:
 lint:
 	@go vet -unreachable=false ./wdl/...
 
-lint-strict:
-	@golangci-lint run ./...
-
 format:
 	@gofmt -w ./wdl/*.go
 
