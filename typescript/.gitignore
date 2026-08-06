@@ -15,3 +15,6 @@ pnpm-debug.log*
 .env.*
 src/generated/
 /*.tgz
+.profiles/
+*.cpuprofile
+*.heapprofile
