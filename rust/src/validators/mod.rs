@@ -1592,10 +1592,57 @@ impl ValidatorRunner {
         // Clone imports so we can call &mut self methods
         let imports: Vec<WdlImport> = doc.import_statements().cloned().collect();
 
+        // ── Pass 1: structural checks (no resolved document needed) ───────────
+        // These checks run on every import regardless of whether it was resolved,
+        // so they fire even when load_from_path (no resolver) is used.
         let mut namespaces: HashSet<String> = HashSet::new();
-
         for imp in &imports {
-            // Resolve the imported document
+            match imp {
+                WdlImport::Standard(std_imp) => {
+                    let ns = import_namespace(std_imp);
+                    if namespaces.contains(&ns) {
+                        self.add_error(
+                            WdlErrorCode::DuplicateDefinition,
+                            format!("Duplicate import namespace: {}", ns),
+                        );
+                    } else if local_names.contains(&ns) {
+                        self.add_error(
+                            WdlErrorCode::DuplicateDefinition,
+                            format!("Import namespace '{}' conflicts with local name", ns),
+                        );
+                    } else {
+                        namespaces.insert(ns);
+                    }
+                }
+                WdlImport::Members(mem_imp) => {
+                    // Check for duplicate aliases and local-name conflicts within
+                    // a single `import { A as X, B as Y } from "..."` statement.
+                    let mut seen: HashSet<String> = HashSet::new();
+                    for member in &mem_imp.members {
+                        let local_name =
+                            member.alias.as_deref().unwrap_or(member.member.as_str());
+                        if !seen.insert(local_name.to_string()) {
+                            self.add_error(
+                                WdlErrorCode::DuplicateDefinition,
+                                format!("Duplicate import alias: {}", local_name),
+                            );
+                        } else if local_names.contains(local_name) {
+                            self.add_error(
+                                WdlErrorCode::DuplicateDefinition,
+                                format!(
+                                    "Import alias '{}' conflicts with local name",
+                                    local_name
+                                ),
+                            );
+                        }
+                    }
+                }
+                WdlImport::Star(_) => {}
+            }
+        }
+
+        // ── Pass 2: content checks (need resolved document) ───────────────────
+        for imp in &imports {
             let id = match imp.import_identifier() {
                 Some(id) => id.to_string(),
                 None => continue,
@@ -1623,19 +1670,27 @@ impl ValidatorRunner {
             match imp {
                 WdlImport::Standard(std_imp) => {
                     let ns = import_namespace(std_imp);
+                    // Validate struct/enum alias members exist in the imported doc
+                    let alias_members = std_imp.members.clone();
+                    for alias_member in &alias_members {
+                        let exists = imported_doc
+                            .structs()
+                            .any(|s| s.name == alias_member.member)
+                            || imported_doc
+                                .enums()
+                                .any(|e| e.name == alias_member.member);
+                        if !exists {
+                            self.add_error(
+                                WdlErrorCode::UnknownReference,
+                                format!(
+                                    "Aliased type '{}' not found in imported document",
+                                    alias_member.member
+                                ),
+                            );
+                        }
+                    }
+                    // Only index callables if this namespace had no structural error
                     if namespaces.contains(&ns) {
-                        self.add_error(
-                            WdlErrorCode::DuplicateDefinition,
-                            format!("Duplicate import namespace: {}", ns),
-                        );
-                    } else if local_names.contains(&ns) {
-                        self.add_error(
-                            WdlErrorCode::DuplicateDefinition,
-                            format!("Import namespace '{}' conflicts with local name", ns),
-                        );
-                    } else {
-                        namespaces.insert(ns.clone());
-                        // Index callables from imported doc with namespace prefix
                         for t in imported_doc.tasks() {
                             let key = format!("{}.{}", ns, t.name);
                             let contract = self.build_task_contract(t);
@@ -1646,7 +1701,6 @@ impl ValidatorRunner {
                             let contract = self.build_workflow_contract(w);
                             self.callable_contracts.insert(key, contract);
                         }
-                        // Index structs/enums from imported doc
                         for s in imported_doc.structs() {
                             self.index_local_struct(s);
                         }
@@ -1656,7 +1710,6 @@ impl ValidatorRunner {
                     }
                 }
                 WdlImport::Star(_) => {
-                    // Star import: all task/workflow names without prefix
                     for t in imported_doc.tasks() {
                         let contract = self.build_task_contract(t);
                         self.callable_contracts.entry(t.name.clone()).or_insert(contract);
@@ -1673,21 +1726,37 @@ impl ValidatorRunner {
                     }
                 }
                 WdlImport::Members(mem_imp) => {
-                    // Only named members
                     let members = mem_imp.members.clone();
                     for member in &members {
                         let local_name = member.alias.as_deref().unwrap_or(&member.member);
-                        // Try task
-                        if let Some(t) = imported_doc.tasks().find(|t| t.name == member.member) {
+                        // Validate the member exists in the imported doc
+                        let task_match =
+                            imported_doc.tasks().find(|t| t.name == member.member);
+                        let wf_match =
+                            imported_doc.workflows().find(|w| w.name == member.member);
+                        let struct_match =
+                            imported_doc.structs().any(|s| s.name == member.member);
+                        let enum_match =
+                            imported_doc.enums().any(|e| e.name == member.member);
+                        if task_match.is_none()
+                            && wf_match.is_none()
+                            && !struct_match
+                            && !enum_match
+                        {
+                            self.add_error(
+                                WdlErrorCode::UnknownReference,
+                                format!(
+                                    "Import member '{}' not found in imported document",
+                                    member.member
+                                ),
+                            );
+                        } else if let Some(t) = task_match {
                             let contract = self.build_task_contract(t);
                             self.callable_contracts.insert(local_name.to_string(), contract);
-                        } else if let Some(w) =
-                            imported_doc.workflows().find(|w| w.name == member.member)
-                        {
+                        } else if let Some(w) = wf_match {
                             let contract = self.build_workflow_contract(w);
                             self.callable_contracts.insert(local_name.to_string(), contract);
                         }
-                        // Structs / enums are indexed by original name (aliases handled separately)
                     }
                 }
             }
@@ -1768,6 +1837,24 @@ impl ValidatorRunner {
                                 format!(
                                     "Array+ type '{}' cannot be assigned an empty array",
                                     type_to_wdl(&decl.wdl_type)
+                                ),
+                            );
+                        }
+                    }
+                }
+                // Check all array literal elements are assignable to the member type
+                if let WdlExpression::ArrayLit(lit) = &decl.expression {
+                    let elem_ty = arr.member_type.clone();
+                    let entries = lit.entries.clone();
+                    for entry in &entries {
+                        if !self.is_assignable_from(&elem_ty, entry) {
+                            let actual = self.infer_type(entry);
+                            self.add_error(
+                                WdlErrorCode::TypeMismatch,
+                                format!(
+                                    "Array element type '{}' is not assignable to '{}'",
+                                    actual.as_ref().map(type_to_wdl).unwrap_or_else(|| "null".into()),
+                                    type_to_wdl(&elem_ty)
                                 ),
                             );
                         }
@@ -1895,9 +1982,8 @@ impl ValidatorRunner {
             self.call_outputs.insert(call_name.clone(), outputs);
             self.call_output_types.insert(call_name.clone(), output_types);
         } else {
-            // No contract — register empty outputs to avoid subsequent errors
-            self.call_outputs.insert(call_name.clone(), HashSet::new());
-            self.call_output_types.insert(call_name.clone(), HashMap::new());
+            // No contract (unresolved import or unknown callable) — do not
+            // insert into call_outputs so member access checks are skipped.
         }
 
         // Add call name to scope_types as a TypeRef placeholder (for member access)
@@ -2430,7 +2516,7 @@ impl ValidatorRunner {
     // Chunk 6 — Lint helpers
     // ──────────────────────────────────────────────────────────────────────────
 
-    fn collect_expression_usage(&self, expr: &WdlExpression, usage: &mut Usage) {
+    fn collect_expression_usage(&mut self, expr: &WdlExpression, usage: &mut Usage) {
         match expr {
             WdlExpression::Variable(name) => {
                 usage.used_variables.insert(name.clone());
@@ -2501,7 +2587,7 @@ impl ValidatorRunner {
     }
 
     fn collect_string_literal_usage(
-        &self,
+        &mut self,
         lit: &crate::expressions::WdlStringLiteral,
         usage: &mut Usage,
     ) {
@@ -2514,6 +2600,10 @@ impl ValidatorRunner {
             {
                 self.collect_expression_usage(expression, usage);
                 if let Some(opt) = option {
+                    self.add_error(
+                        WdlErrorCode::LintDeprecatedFeature,
+                        "String placeholder option syntax (sep=, default=, true=/false=) is deprecated",
+                    );
                     match opt.as_ref() {
                         WdlStringPlaceholderOption::Sep(s)
                         | WdlStringPlaceholderOption::Default(s) => {
@@ -2537,7 +2627,7 @@ impl ValidatorRunner {
     }
 
     fn collect_call_usage(
-        &self,
+        &mut self,
         call: &WdlCall,
         usage: &mut Usage,
         call_names: &mut HashSet<String>,
@@ -2585,7 +2675,7 @@ impl ValidatorRunner {
     }
 
     fn collect_conditional_usage(
-        &self,
+        &mut self,
         cond: &WdlConditional,
         usage: &mut Usage,
         declared_names: &mut HashSet<String>,
@@ -2608,7 +2698,7 @@ impl ValidatorRunner {
 
     /// Immutable version of collect_statements_usage (used from collect_conditional_usage).
     fn collect_statements_usage_immut(
-        &self,
+        &mut self,
         stmts: &[WdlStatement],
         usage: &mut Usage,
         declared_names: &mut HashSet<String>,
@@ -2701,24 +2791,29 @@ impl ValidatorRunner {
                     for decl in &inp.elements {
                         match decl {
                             InputDeclaration::Bound(d) => {
+                                self.lint_deprecated_type_usage(&d.wdl_type.clone(), &d.name);
                                 declared_names.insert(d.name.clone());
                                 self.collect_expression_usage(&d.expression, &mut usage);
                             }
                             InputDeclaration::Unbound(d) => {
+                                self.lint_deprecated_type_usage(&d.wdl_type.clone(), &d.name);
                                 declared_names.insert(d.name.clone());
                             }
                         }
                     }
                 }
                 WdlWorkflowElement::BoundDeclaration(d) => {
+                    self.lint_deprecated_type_usage(&d.wdl_type.clone(), &d.name);
                     declared_names.insert(d.name.clone());
                     self.collect_expression_usage(&d.expression, &mut usage);
                 }
                 WdlWorkflowElement::Declaration(d) => {
+                    self.lint_deprecated_type_usage(&d.wdl_type.clone(), &d.name);
                     declared_names.insert(d.name.clone());
                 }
                 WdlWorkflowElement::Output(out) => {
                     for decl in &out.elements {
+                        self.lint_deprecated_type_usage(&decl.wdl_type.clone(), &decl.name);
                         self.collect_expression_usage(&decl.expression, &mut usage);
                     }
                 }
@@ -2769,6 +2864,43 @@ impl ValidatorRunner {
         }
     }
 
+    // ─── deprecation helpers ───────────────────────────────────────────────────
+
+    fn lint_deprecated_type_usage(&mut self, ty: &WdlType, name: &str) {
+        match ty {
+            WdlType::Primitive(p) if p.primitive_kind == WdlPrimitiveKind::Object => {
+                self.add_error(
+                    WdlErrorCode::LintDeprecatedFeature,
+                    format!("Declaration '{}' uses deprecated 'Object' type", name),
+                );
+            }
+            // Parser emits Object? as TypeRef("Object") rather than Primitive(Object)
+            WdlType::TypeRef(tr) if tr.reference_name == "Object" => {
+                self.add_error(
+                    WdlErrorCode::LintDeprecatedFeature,
+                    format!("Declaration '{}' uses deprecated 'Object' type", name),
+                );
+            }
+            WdlType::Array(a) => {
+                let mt = a.member_type.clone();
+                self.lint_deprecated_type_usage(&mt, name);
+            }
+            WdlType::Map(m) => {
+                let kt = m.key_type.clone();
+                let vt = m.value_type.clone();
+                self.lint_deprecated_type_usage(&kt, name);
+                self.lint_deprecated_type_usage(&vt, name);
+            }
+            WdlType::Pair(p) => {
+                let lt = p.left_type.clone();
+                let rt = p.right_type.clone();
+                self.lint_deprecated_type_usage(&lt, name);
+                self.lint_deprecated_type_usage(&rt, name);
+            }
+            _ => {}
+        }
+    }
+
     fn lint_task(&mut self, task: &WdlTask) {
         let mut declared_names: HashSet<String> = HashSet::new();
         let mut usage = Usage::default();
@@ -2780,9 +2912,11 @@ impl ValidatorRunner {
                     for decl in &inp.elements {
                         match decl {
                             InputDeclaration::Unbound(d) => {
+                                self.lint_deprecated_type_usage(&d.wdl_type.clone(), &d.name);
                                 declared_names.insert(d.name.clone());
                             }
                             InputDeclaration::Bound(d) => {
+                                self.lint_deprecated_type_usage(&d.wdl_type.clone(), &d.name);
                                 declared_names.insert(d.name.clone());
                                 self.collect_expression_usage(&d.expression, &mut usage);
                             }
@@ -2790,14 +2924,17 @@ impl ValidatorRunner {
                     }
                 }
                 WdlTaskElement::BoundDeclaration(d) => {
+                    self.lint_deprecated_type_usage(&d.wdl_type.clone(), &d.name);
                     declared_names.insert(d.name.clone());
                     self.collect_expression_usage(&d.expression, &mut usage);
                 }
                 WdlTaskElement::Declaration(d) => {
+                    self.lint_deprecated_type_usage(&d.wdl_type.clone(), &d.name);
                     declared_names.insert(d.name.clone());
                 }
                 WdlTaskElement::Output(out) => {
                     for decl in &out.elements {
+                        self.lint_deprecated_type_usage(&decl.wdl_type.clone(), &decl.name);
                         self.collect_expression_usage(&decl.expression, &mut usage);
                     }
                 }
@@ -2805,6 +2942,13 @@ impl ValidatorRunner {
                     self.collect_string_literal_usage(&cmd.command_text, &mut usage);
                 }
                 WdlTaskElement::Runtime(rt) => {
+                    self.add_error(
+                        WdlErrorCode::LintDeprecatedFeature,
+                        format!(
+                            "Task '{}' uses deprecated 'runtime' section; use 'requirements' instead",
+                            task.name
+                        ),
+                    );
                     for entry in &rt.elements {
                         if let Some(v) = &entry.value {
                             self.collect_expression_usage(v, &mut usage);

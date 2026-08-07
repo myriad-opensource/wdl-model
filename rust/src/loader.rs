@@ -1020,9 +1020,13 @@ impl<'input> WdlV1ParserVisitor<'input> for WdlV1Builder {
 
     fn visit_importStatementMembers(&mut self, ctx: &ImportStatementMembersContext<'input>) {
         self.visit_children(ctx);
-        // importMember nodes push ImportMember; drain them
-        let members = self.drain_while_import_member();
+        // Grammar order: importMembers KEYWORD_FROM importUriLiteral
+        // After visit_children the stack (top-to-bottom) is:
+        //   StringLiteral  ← pushed by importUriLiteral (visited last)
+        //   ImportMember*  ← pushed by each importMember (visited first)
+        // So pop the source literal first, then drain members.
         let source = self.pop_string_literal();
+        let members = self.drain_while_import_member();
         let source_text = string_literal_to_text(&source);
         let imp = WdlImportMembers {
             source,
