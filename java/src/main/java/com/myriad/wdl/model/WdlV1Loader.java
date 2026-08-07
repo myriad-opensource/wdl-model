@@ -179,8 +179,10 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.antlr.v4.runtime.BaseErrorListener;
 import org.antlr.v4.runtime.CharStream;
 import org.antlr.v4.runtime.CommonTokenFactory;
@@ -222,7 +224,8 @@ public class WdlV1Loader extends WdlV1ParserBaseVisitor<Void> {
     WdlDocument document = parseDocument(input, currentDocumentLocation);
 
     if (importResolver != null) {
-      resolveImportsRecursive(document, importResolver, new HashMap<>());
+      resolveImportsRecursive(
+          document, importResolver, new HashMap<>(), new ArrayDeque<>(), new HashSet<>());
     }
     if (validator != null) {
       validator.validate(document);
@@ -335,47 +338,80 @@ public class WdlV1Loader extends WdlV1ParserBaseVisitor<Void> {
 
   /**
    * Resolve imports depth-first and populate imported document maps on each visited document.
+   *
+   * <p>{@code loadedById} caches fully loaded documents, {@code activeImportStack} preserves the
+   * current resolution chain for diagnostics, and {@code activeImportSet} provides fast cycle
+   * detection keyed by resolved import identifier.
    */
   private static void resolveImportsRecursive(
       WdlDocument document,
       WdlImportResolverBase importResolver,
-      Map<String, WdlDocument> loadedById)
+      Map<String, WdlDocument> loadedById,
+      ArrayDeque<String> activeImportStack,
+      Set<String> activeImportSet)
       throws WdlException {
     URI currentSourceLocation = document.getSourceLocation();
-    if (currentSourceLocation != null) {
-      loadedById.putIfAbsent(currentSourceLocation.toString(), document);
+    String currentDocumentIdentifier =
+        currentSourceLocation != null ? currentSourceLocation.toString() : null;
+    if (currentDocumentIdentifier != null) {
+      // Keep both the ordered path and an O(1) membership check for active imports.
+      activeImportStack.addLast(currentDocumentIdentifier);
+      activeImportSet.add(currentDocumentIdentifier);
+      loadedById.putIfAbsent(currentDocumentIdentifier, document);
     }
 
-    document.importedDocuments().clear();
-    URI currentLocation = document.getSourceLocation();
-    for (WdlImport imp : document.importStatements()) {
-      WdlStringLiteral sourceLiteral = imp.getSource();
-      if (sourceLiteral == null) {
-        continue;
+    try {
+      document.importedDocuments().clear();
+      URI currentLocation = document.getSourceLocation();
+      for (WdlImport imp : document.importStatements()) {
+        WdlStringLiteral sourceLiteral = imp.getSource();
+        if (sourceLiteral == null) {
+          continue;
+        }
+
+        String importReference = extractStringLiteralText(sourceLiteral);
+        URI resolvedImportLocation =
+            importResolver.resolveImportLocation(currentLocation, importReference);
+        String importIdentifier =
+            resolvedImportLocation != null ? resolvedImportLocation.toString() : importReference;
+        imp.setImportIdentifier(importIdentifier);
+
+        if (activeImportSet.contains(importIdentifier)) {
+          throw circularImportException(activeImportStack, importIdentifier);
+        }
+
+        String importSourceText = importResolver.resolveImport(currentLocation, importReference);
+        imp.setSourceText(importSourceText);
+
+        WdlDocument importedDocument = loadedById.get(importIdentifier);
+        if (importedDocument == null) {
+          importedDocument =
+              parseDocument(
+                  org.antlr.v4.runtime.CharStreams.fromString(importSourceText),
+                  resolvedImportLocation);
+          loadedById.put(importIdentifier, importedDocument);
+          resolveImportsRecursive(
+              importedDocument, importResolver, loadedById, activeImportStack, activeImportSet);
+        }
+
+        document.importedDocuments().put(importIdentifier, importedDocument);
       }
-
-      String importReference = extractStringLiteralText(sourceLiteral);
-      URI resolvedImportLocation =
-          importResolver.resolveImportLocation(currentLocation, importReference);
-      String importIdentifier =
-          resolvedImportLocation != null ? resolvedImportLocation.toString() : importReference;
-      imp.setImportIdentifier(importIdentifier);
-
-      String importSourceText = importResolver.resolveImport(currentLocation, importReference);
-      imp.setSourceText(importSourceText);
-
-      WdlDocument importedDocument = loadedById.get(importIdentifier);
-      if (importedDocument == null) {
-        importedDocument =
-            parseDocument(
-                org.antlr.v4.runtime.CharStreams.fromString(importSourceText),
-                resolvedImportLocation);
-        loadedById.put(importIdentifier, importedDocument);
-        resolveImportsRecursive(importedDocument, importResolver, loadedById);
+    } finally {
+      if (currentDocumentIdentifier != null
+          && currentDocumentIdentifier.equals(activeImportStack.peekLast())) {
+        activeImportStack.removeLast();
+        activeImportSet.remove(currentDocumentIdentifier);
       }
-
-      document.importedDocuments().put(importIdentifier, importedDocument);
     }
+  }
+
+  private static WdlException circularImportException(
+      ArrayDeque<String> activeImportStack, String importIdentifier) {
+    // Include the full cycle path so the import loop is easy to diagnose.
+    List<String> cyclePath = new ArrayList<>(activeImportStack);
+    cyclePath.add(importIdentifier);
+    return new com.myriad.wdl.model.errors.WdlImportException(
+        "Circular import detected: " + String.join(" -> ", cyclePath), importIdentifier);
   }
 
   /**
@@ -425,7 +461,7 @@ public class WdlV1Loader extends WdlV1ParserBaseVisitor<Void> {
       // This should never happen
       throw new AssertionError("Stack is empty");
     }
-    if (stack.size() != 1 && !(stack.peek() instanceof WdlDocument)) {
+    if (stack.size() != 1 || !(stack.peek() instanceof WdlDocument)) {
       // This should never happen
       throw new AssertionError("Stack does not contain exactly one WdlDocument");
     }

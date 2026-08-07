@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -48,6 +49,40 @@ func TestLoaderImportsFromStringFixture(t *testing.T) {
 	}
 	if len(doc.ImportStatements) != 1 || len(doc.ImportedDocs) != 1 {
 		t.Fatalf("expected one resolved import from string input, got statements=%d docs=%d", len(doc.ImportStatements), len(doc.ImportedDocs))
+	}
+}
+
+func TestLoaderImportsCircularFixture(t *testing.T) {
+	resolver, err := NewDefaultResolver(ResolverConfig{})
+	if err != nil {
+		t.Fatalf("resolver init failed: %v", err)
+	}
+	root := filepath.Join("..", "..", "wdl_tests", "loader_imports", "circular", "root.wdl")
+	loader := NewLoader()
+	_, err = loader.LoadFile(context.Background(), root, WithResolver(resolver))
+	if err == nil {
+		t.Fatal("expected circular import error")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "circular import detected") || !strings.Contains(msg, "child.wdl") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestLoaderImportsCircularRelativeFixture(t *testing.T) {
+	resolver, err := NewDefaultResolver(ResolverConfig{})
+	if err != nil {
+		t.Fatalf("resolver init failed: %v", err)
+	}
+	root := filepath.Join("..", "..", "wdl_tests", "loader_imports", "circular_relative", "root.wdl")
+	loader := NewLoader()
+	_, err = loader.LoadFile(context.Background(), root, WithResolver(resolver))
+	if err == nil {
+		t.Fatal("expected circular import error")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "circular import detected") || !strings.Contains(msg, "root.wdl") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

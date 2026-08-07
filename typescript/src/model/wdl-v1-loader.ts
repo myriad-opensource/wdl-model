@@ -150,7 +150,12 @@ import {
   WdlTask,
   WdlWorkflow,
 } from './definitions/index.js';
-import { AssertionError, WdlException, WdlSyntaxError } from './errors/index.js';
+import {
+  AssertionError,
+  WdlException,
+  WdlImportException,
+  WdlSyntaxError,
+} from './errors/index.js';
 import {
   Delimiter,
   PlaceHolderSymbol,
@@ -274,7 +279,13 @@ export class WdlV1Loader {
 
     const document = this.buildDocument(documentContext, currentDocumentLocation);
     if (importResolver) {
-      this.resolveImportsRecursive(document, importResolver, new Map<string, WdlDocument>());
+      this.resolveImportsRecursive(
+        document,
+        importResolver,
+        new Map<string, WdlDocument>(),
+        [],
+        new Set<string>(),
+      );
     }
     if (validator) {
       validator.validateDocument(document);
@@ -309,46 +320,79 @@ export class WdlV1Loader {
     return document;
   }
 
+  /**
+   * Resolves imports depth-first while tracking the active import path.
+   *
+   * `loadedById` caches fully loaded documents, `activeImportStack` preserves the
+   * current resolution chain for diagnostics, and `activeImportSet` provides fast
+   * cycle detection keyed by resolved import identifier.
+   */
   private static resolveImportsRecursive(
     document: WdlDocument,
     importResolver: WdlImportResolverBase,
     loadedById: Map<string, WdlDocument>,
+    activeImportStack: string[],
+    activeImportSet: Set<string>,
   ): void {
     const currentSourceLocation = document.getSourceLocation();
     if (currentSourceLocation) {
+      // Keep both order and O(1) membership checks for the active recursion path.
+      activeImportStack.push(currentSourceLocation);
+      activeImportSet.add(currentSourceLocation);
       loadedById.set(currentSourceLocation, document);
     }
 
-    document.importedDocuments().clear();
-    const currentLocation = document.getSourceLocation();
-    for (const imp of document.importStatements()) {
-      const sourceLiteral = imp.getSource();
-      if (!sourceLiteral) continue;
+    try {
+      document.importedDocuments().clear();
+      const currentLocation = document.getSourceLocation();
+      for (const imp of document.importStatements()) {
+        const sourceLiteral = imp.getSource();
+        if (!sourceLiteral) continue;
 
-      const importReference = this.extractStringLiteralText(sourceLiteral);
-      const resolvedImportLocation = importResolver.resolveImportLocation(
-        currentLocation,
-        importReference,
-      );
-      const importIdentifier = resolvedImportLocation || importReference;
-      imp.setImportIdentifier(importIdentifier);
-
-      const importSourceText = importResolver.resolveImport(currentLocation, importReference);
-      imp.setSourceText(importSourceText);
-
-      let importedDocument = loadedById.get(importIdentifier);
-      if (!importedDocument) {
-        importedDocument = this.loadFromString(
-          importSourceText,
-          undefined,
-          resolvedImportLocation,
-          undefined,
+        const importReference = this.extractStringLiteralText(sourceLiteral);
+        const resolvedImportLocation = importResolver.resolveImportLocation(
+          currentLocation,
+          importReference,
         );
-        loadedById.set(importIdentifier, importedDocument);
-        this.resolveImportsRecursive(importedDocument, importResolver, loadedById);
-      }
+        const importIdentifier = resolvedImportLocation || importReference;
+        imp.setImportIdentifier(importIdentifier);
 
-      document.importedDocuments().set(importIdentifier, importedDocument);
+        if (activeImportSet.has(importIdentifier)) {
+          throw new WdlImportException(
+            // Include the full path that closed the loop to make debugging easier.
+            `Circular import detected: ${[...activeImportStack, importIdentifier].join(' -> ')}`,
+            importIdentifier,
+          );
+        }
+
+        const importSourceText = importResolver.resolveImport(currentLocation, importReference);
+        imp.setSourceText(importSourceText);
+
+        let importedDocument = loadedById.get(importIdentifier);
+        if (!importedDocument) {
+          importedDocument = this.loadFromString(
+            importSourceText,
+            undefined,
+            resolvedImportLocation,
+            undefined,
+          );
+          loadedById.set(importIdentifier, importedDocument);
+          this.resolveImportsRecursive(
+            importedDocument,
+            importResolver,
+            loadedById,
+            activeImportStack,
+            activeImportSet,
+          );
+        }
+
+        document.importedDocuments().set(importIdentifier, importedDocument);
+      }
+    } finally {
+      if (currentSourceLocation) {
+        activeImportStack.pop();
+        activeImportSet.delete(currentSourceLocation);
+      }
     }
   }
 

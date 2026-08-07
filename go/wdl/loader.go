@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	antlr "github.com/antlr4-go/antlr/v4"
 	grammar "github.com/myriad-opensource/wdl-model/go/grammar/wdl1"
@@ -84,7 +85,8 @@ func NewLoader() *Loader { return NewWdlV1Loader() }
 
 // LoadString parses source text, resolves imports, and optionally validates.
 //
-// Import cycles are guarded by a visited set keyed by resolved location.
+// Import resolution keeps a cache of fully loaded documents plus an active import
+// path so cycles can be detected and reported with the full chain.
 func (l *WdlV1Loader) LoadString(ctx context.Context, source string, options ...LoadOption) (*Document, error) {
 	opts := defaultLoadOptions()
 	for _, option := range options {
@@ -97,8 +99,10 @@ func (l *WdlV1Loader) LoadString(ctx context.Context, source string, options ...
 		}
 		opts.Resolver = resolver
 	}
-	visited := map[string]struct{}{}
-	doc, err := l.loadRecursive(ctx, source, opts.SourceLocation, opts, 0, visited)
+	loadedByID := map[string]*Document{}
+	// activeImportSet mirrors the current recursion path for O(1) cycle checks.
+	activeImportSet := map[string]struct{}{}
+	doc, err := l.loadRecursive(ctx, source, opts.SourceLocation, opts, 0, loadedByID, nil, activeImportSet)
 	if err != nil {
 		return nil, err
 	}
@@ -133,7 +137,9 @@ func (l *WdlV1Loader) loadRecursive(
 	sourceLocation string,
 	opts LoadOptions,
 	depth int,
-	visited map[string]struct{},
+	loadedByID map[string]*Document,
+	activeImportStack []string,
+	activeImportSet map[string]struct{},
 ) (*Document, error) {
 	if opts.MaxImportDepth > 0 && depth > opts.MaxImportDepth {
 		return nil, fmt.Errorf("maximum import depth exceeded")
@@ -159,6 +165,14 @@ func (l *WdlV1Loader) loadRecursive(
 		return doc, nil
 	}
 
+	if sourceLocation != "" {
+		// Keep the ordered path for diagnostics and a set for fast cycle checks.
+		activeImportStack = append(activeImportStack, sourceLocation)
+		activeImportSet[sourceLocation] = struct{}{}
+		loadedByID[sourceLocation] = doc
+		defer delete(activeImportSet, sourceLocation)
+	}
+
 	for i := range doc.ImportStatements {
 		rawImport := doc.ImportStatements[i].RawLocation
 		resolved, importedSource, err := opts.Resolver.ResolveImport(ctx, sourceLocation, rawImport)
@@ -167,18 +181,37 @@ func (l *WdlV1Loader) loadRecursive(
 		}
 		doc.ImportStatements[i].ResolvedLocation = resolved
 		doc.ImportStatements[i].SourceText = importedSource
-		if _, seen := visited[resolved]; seen {
+		if _, active := activeImportSet[resolved]; active {
+			return nil, circularImportError(activeImportStack, resolved)
+		}
+		if importedDoc, ok := loadedByID[resolved]; ok {
+			doc.ImportedDocs[resolved] = importedDoc
 			continue
 		}
-		visited[resolved] = struct{}{}
-		importedDoc, err := l.loadRecursive(ctx, importedSource, resolved, opts, depth+1, visited)
+		importedDoc, err := l.loadRecursive(
+			ctx,
+			importedSource,
+			resolved,
+			opts,
+			depth+1,
+			loadedByID,
+			activeImportStack,
+			activeImportSet,
+		)
 		if err != nil {
 			return nil, err
 		}
+		loadedByID[resolved] = importedDoc
 		doc.ImportedDocs[resolved] = importedDoc
 	}
 
 	return doc, nil
+}
+
+func circularImportError(activeImportStack []string, importIdentifier string) error {
+	// Include the full cycle path in the error so import loops are easy to debug.
+	cyclePath := append(append([]string{}, activeImportStack...), importIdentifier)
+	return fmt.Errorf("circular import detected: %s", strings.Join(cyclePath, " -> "))
 }
 
 func defaultLoadOptions() LoadOptions {

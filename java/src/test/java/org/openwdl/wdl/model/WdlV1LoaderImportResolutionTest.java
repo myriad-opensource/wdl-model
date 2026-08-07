@@ -2,9 +2,12 @@ package org.openwdl.wdl.model;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.myriad.wdl.model.WdlDocument;
 import com.myriad.wdl.model.WdlV1Loader;
+import com.myriad.wdl.model.errors.WdlImportException;
 import com.myriad.wdl.model.resolvers.WdlImportResolverFilesystem;
 import com.myriad.wdl.model.validators.WdlValidator;
 import java.nio.file.Files;
@@ -57,5 +60,34 @@ class WdlV1LoaderImportResolutionTest {
     assertEquals(1, rootDoc.importStatements().size());
     assertEquals(1, rootDoc.importedDocuments().size());
     assertNotNull(rootDoc.importedDocuments().values().iterator().next());
+  }
+
+  @Test
+  void throwsOnDirectCircularImports() {
+    Path root = FIXTURES_ROOT.resolve("circular").resolve("root.wdl");
+
+    WdlImportException ex =
+        assertThrows(WdlImportException.class, () -> WdlV1Loader.load(root.toFile()));
+
+    String message = ex.toDebugMessage();
+    assertTrue(message.contains("Circular import detected"));
+    assertTrue(message.contains("root.wdl"));
+    assertTrue(message.contains("child.wdl"));
+  }
+
+  @Test
+  void throwsOnCircularImportsWithRelativePathNormalization() {
+    Path root = FIXTURES_ROOT.resolve("circular_relative").resolve("root.wdl");
+
+    WdlImportException ex =
+        assertThrows(WdlImportException.class, () -> WdlV1Loader.load(root.toFile()));
+
+    String message = ex.toDebugMessage();
+    assertTrue(message.contains("Circular import detected"));
+    assertTrue(message.contains("root.wdl"));
+    assertTrue(
+        message.contains("nested/child.wdl")
+            || message.contains("nested%2Fchild.wdl")
+            || message.contains("nested\\child.wdl"));
   }
 }
