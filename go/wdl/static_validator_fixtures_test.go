@@ -28,7 +28,7 @@ func TestStaticValidatorFixtures(t *testing.T) {
 			if err != nil {
 				t.Fatalf("resolver init failed: %v", err)
 			}
-			loader := NewLoader()
+			loader := NewWdlV1Loader()
 			validator := NewStaticValidator(SemanticValidatorConfig{})
 
 			wdlPath := filepath.Join(root, tc.fixture)

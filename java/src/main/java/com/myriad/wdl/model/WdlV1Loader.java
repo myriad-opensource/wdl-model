@@ -187,6 +187,7 @@ import org.antlr.v4.runtime.BaseErrorListener;
 import org.antlr.v4.runtime.CharStream;
 import org.antlr.v4.runtime.CommonTokenFactory;
 import org.antlr.v4.runtime.CommonTokenStream;
+import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.RecognitionException;
 import org.antlr.v4.runtime.Recognizer;
 
@@ -500,6 +501,39 @@ public class WdlV1Loader extends WdlV1ParserBaseVisitor<Void> {
             .findFirst()
             .orElseThrow(() -> new IllegalStateException());
     return (T) found;
+  }
+
+  /**
+   * Pops a contiguous expression chain produced by rules like `expr (op expr)*`.
+   * Children are visited left-to-right.
+   */
+  private List<WdlExpression> popExpressionChain(int expressionCount) {
+    List<WdlExpression> expressions = new ArrayList<>(expressionCount);
+    for (int i = 0; i < expressionCount; i++) {
+      expressions.add(popWithType(WdlExpression.class));
+    }
+    List<WdlExpression> ordered = new ArrayList<>(expressionCount);
+    for (int i = expressions.size() - 1; i >= 0; i--) {
+      ordered.add(expressions.get(i));
+    }
+    return ordered;
+  }
+
+  private List<String> collectBinaryOperatorSymbols(ParserRuleContext ctx) {
+    List<String> operators = new ArrayList<>();
+    for (int i = 1; i < ctx.getChildCount(); i += 2) {
+      operators.add(ctx.getChild(i).getText());
+    }
+    return operators;
+  }
+
+  private WdlExpression foldBinaryOperations(
+      List<WdlExpression> expressions, List<WdlBinaryOperation.Operator> operators) {
+    WdlExpression folded = expressions.get(0);
+    for (int i = 0; i < operators.size(); i++) {
+      folded = new WdlBinaryOperation(folded, operators.get(i), expressions.get(i + 1));
+    }
+    return folded;
   }
 
   // =========================================================================
@@ -1839,88 +1873,135 @@ public class WdlV1Loader extends WdlV1ParserBaseVisitor<Void> {
   @Override
   public Void visitLogicalOrExprOperation(LogicalOrExprOperationContext ctx) {
     super.visitLogicalOrExprOperation(ctx);
-    WdlExpression right = popWithType(WdlExpression.class);
-    WdlExpression left = popWithType(WdlExpression.class);
-    WdlBinaryOperation expr = new WdlBinaryOperation(left, WdlBinaryOperation.Operator.OR, right);
-    stack.push(expr);
+    int operatorCount = ctx.LOGICAL_OR().size();
+    if (operatorCount == 0) {
+      return null;
+    }
+    List<WdlExpression> expressions = popExpressionChain(operatorCount + 1);
+    List<WdlBinaryOperation.Operator> operators = new ArrayList<>(operatorCount);
+    for (int i = 0; i < operatorCount; i++) {
+      operators.add(WdlBinaryOperation.Operator.OR);
+    }
+    stack.push(foldBinaryOperations(expressions, operators));
     return null;
   }
 
   @Override
   public Void visitLogicalAndExprOperation(LogicalAndExprOperationContext ctx) {
     super.visitLogicalAndExprOperation(ctx);
-    WdlExpression right = popWithType(WdlExpression.class);
-    WdlExpression left = popWithType(WdlExpression.class);
-    WdlBinaryOperation expr = new WdlBinaryOperation(left, WdlBinaryOperation.Operator.AND, right);
-    stack.push(expr);
+    int operatorCount = ctx.LOGICAL_AND().size();
+    if (operatorCount == 0) {
+      return null;
+    }
+    List<WdlExpression> expressions = popExpressionChain(operatorCount + 1);
+    List<WdlBinaryOperation.Operator> operators = new ArrayList<>(operatorCount);
+    for (int i = 0; i < operatorCount; i++) {
+      operators.add(WdlBinaryOperation.Operator.AND);
+    }
+    stack.push(foldBinaryOperations(expressions, operators));
     return null;
   }
 
   @Override
   public Void visitEqualityExprOperation(EqualityExprOperationContext ctx) {
     super.visitEqualityExprOperation(ctx);
-    WdlExpression right = popWithType(WdlExpression.class);
-    WdlExpression left = popWithType(WdlExpression.class);
-    WdlBinaryOperation.Operator op =
-        ctx.EQUAL() != null ? WdlBinaryOperation.Operator.EQ : WdlBinaryOperation.Operator.NEQ;
-    WdlBinaryOperation expr = new WdlBinaryOperation(left, op, right);
-    stack.push(expr);
+    List<String> operatorSymbols = collectBinaryOperatorSymbols(ctx);
+    if (operatorSymbols.isEmpty()) {
+      return null;
+    }
+    List<WdlExpression> expressions = popExpressionChain(operatorSymbols.size() + 1);
+    List<WdlBinaryOperation.Operator> operators = new ArrayList<>(operatorSymbols.size());
+    for (String symbol : operatorSymbols) {
+      if ("==".equals(symbol)) {
+        operators.add(WdlBinaryOperation.Operator.EQ);
+      } else if ("!=".equals(symbol)) {
+        operators.add(WdlBinaryOperation.Operator.NEQ);
+      } else {
+        throw new AssertionError("Unknown equality operator: " + symbol);
+      }
+    }
+    stack.push(foldBinaryOperations(expressions, operators));
     return null;
   }
 
   @Override
   public Void visitComparisonExprOperation(ComparisonExprOperationContext ctx) {
     super.visitComparisonExprOperation(ctx);
-    WdlExpression right = popWithType(WdlExpression.class);
-    WdlExpression left = popWithType(WdlExpression.class);
-    WdlBinaryOperation.Operator op;
-    if (ctx.LESS() != null) {
-      op = WdlBinaryOperation.Operator.LT;
-    } else if (ctx.LESS_EQUAL() != null) {
-      op = WdlBinaryOperation.Operator.LTE;
-    } else if (ctx.GREATER() != null) {
-      op = WdlBinaryOperation.Operator.GT;
-    } else if (ctx.GREATER_EQUAL() != null) {
-      op = WdlBinaryOperation.Operator.GTE;
-    } else {
-      // This should never happen
-      throw new AssertionError("Unknown comparison operator");
+    List<String> operatorSymbols = collectBinaryOperatorSymbols(ctx);
+    if (operatorSymbols.isEmpty()) {
+      return null;
     }
-    WdlBinaryOperation expr = new WdlBinaryOperation(left, op, right);
-    stack.push(expr);
+    List<WdlExpression> expressions = popExpressionChain(operatorSymbols.size() + 1);
+    List<WdlBinaryOperation.Operator> operators = new ArrayList<>(operatorSymbols.size());
+    for (String symbol : operatorSymbols) {
+      switch (symbol) {
+        case "<":
+          operators.add(WdlBinaryOperation.Operator.LT);
+          break;
+        case "<=":
+          operators.add(WdlBinaryOperation.Operator.LTE);
+          break;
+        case ">":
+          operators.add(WdlBinaryOperation.Operator.GT);
+          break;
+        case ">=":
+          operators.add(WdlBinaryOperation.Operator.GTE);
+          break;
+        default:
+          throw new AssertionError("Unknown comparison operator: " + symbol);
+      }
+    }
+    stack.push(foldBinaryOperations(expressions, operators));
     return null;
   }
 
   @Override
   public Void visitAdditiveExprOperation(AdditiveExprOperationContext ctx) {
     super.visitAdditiveExprOperation(ctx);
-    WdlExpression right = popWithType(WdlExpression.class);
-    WdlExpression left = popWithType(WdlExpression.class);
-    WdlBinaryOperation.Operator op =
-        ctx.PLUS() != null ? WdlBinaryOperation.Operator.ADD : WdlBinaryOperation.Operator.SUTRACT;
-    WdlBinaryOperation expr = new WdlBinaryOperation(left, op, right);
-    stack.push(expr);
+    List<String> operatorSymbols = collectBinaryOperatorSymbols(ctx);
+    if (operatorSymbols.isEmpty()) {
+      return null;
+    }
+    List<WdlExpression> expressions = popExpressionChain(operatorSymbols.size() + 1);
+    List<WdlBinaryOperation.Operator> operators = new ArrayList<>(operatorSymbols.size());
+    for (String symbol : operatorSymbols) {
+      if ("+".equals(symbol)) {
+        operators.add(WdlBinaryOperation.Operator.ADD);
+      } else if ("-".equals(symbol)) {
+        operators.add(WdlBinaryOperation.Operator.SUTRACT);
+      } else {
+        throw new AssertionError("Unknown additive operator: " + symbol);
+      }
+    }
+    stack.push(foldBinaryOperations(expressions, operators));
     return null;
   }
 
   @Override
   public Void visitMultiplicativeExprOperation(MultiplicativeExprOperationContext ctx) {
     super.visitMultiplicativeExprOperation(ctx);
-    WdlExpression right = popWithType(WdlExpression.class);
-    WdlExpression left = popWithType(WdlExpression.class);
-    WdlBinaryOperation.Operator op;
-    if (ctx.ASTERISK() != null) {
-      op = WdlBinaryOperation.Operator.MULTIPLY;
-    } else if (ctx.SLASH() != null) {
-      op = WdlBinaryOperation.Operator.DIVIDE;
-    } else if (ctx.PERCENT() != null) {
-      op = WdlBinaryOperation.Operator.MODULO;
-    } else {
-      // This should never happen
-      throw new AssertionError("Unknown multiplicative operator");
+    List<String> operatorSymbols = collectBinaryOperatorSymbols(ctx);
+    if (operatorSymbols.isEmpty()) {
+      return null;
     }
-    WdlBinaryOperation expr = new WdlBinaryOperation(left, op, right);
-    stack.push(expr);
+    List<WdlExpression> expressions = popExpressionChain(operatorSymbols.size() + 1);
+    List<WdlBinaryOperation.Operator> operators = new ArrayList<>(operatorSymbols.size());
+    for (String symbol : operatorSymbols) {
+      switch (symbol) {
+        case "*":
+          operators.add(WdlBinaryOperation.Operator.MULTIPLY);
+          break;
+        case "/":
+          operators.add(WdlBinaryOperation.Operator.DIVIDE);
+          break;
+        case "%":
+          operators.add(WdlBinaryOperation.Operator.MODULO);
+          break;
+        default:
+          throw new AssertionError("Unknown multiplicative operator: " + symbol);
+      }
+    }
+    stack.push(foldBinaryOperations(expressions, operators));
     return null;
   }
 

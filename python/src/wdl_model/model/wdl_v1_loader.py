@@ -103,7 +103,7 @@ from .types import (
 )
 from .wdl_document import WdlDocument
 from .wdl_version import WdlVersion
-from .resolvers import WdlImportResolver, WdlImportResolverBase
+from .resolvers import WdlImportResolverBase, WdlImportResolverHttpx
 
 
 class _WdlErrorListener(ErrorListener):
@@ -195,7 +195,7 @@ class WdlV1Loader(WdlV1ParserVisitor):
         """Parse a source string into a ``WdlDocument`` and optionally validate it."""
         resolver = import_resolver
         if source_location is not None and resolver is None:
-            resolver = WdlImportResolver()
+            resolver = WdlImportResolverHttpx()
         return cls.load(InputStream(source_code), validator, resolver, source_location)
 
     @classmethod
@@ -208,7 +208,7 @@ class WdlV1Loader(WdlV1ParserVisitor):
         """Parse a UTF-8 source file into a ``WdlDocument`` and optionally validate it."""
         path = Path(file_path)
         resolver = (
-            import_resolver if import_resolver is not None else WdlImportResolver()
+            import_resolver if import_resolver is not None else WdlImportResolverHttpx()
         )
         return cls.load(
             InputStream(path.read_text(encoding="utf-8")),
@@ -346,6 +346,27 @@ class WdlV1Loader(WdlV1ParserVisitor):
         if isinstance(result, Iterable) and not isinstance(result, (str, bytes)):
             return [item.getText() for item in result]
         return [result.getText()]
+
+    def _pop_expression_chain(self, expression_count: int) -> list[WdlExpression]:
+        expressions = [
+            self._pop_with_type(WdlExpression) for _ in range(expression_count)
+        ]
+        expressions.reverse()
+        return expressions
+
+    @staticmethod
+    def _collect_binary_operator_symbols(ctx: Any) -> list[str]:
+        children = list(ctx.getChildren())
+        return [children[i].getText() for i in range(1, len(children), 2)]
+
+    @staticmethod
+    def _fold_binary_operations(
+        expressions: list[WdlExpression], operators: list[WdlBinaryOperator]
+    ) -> WdlExpression:
+        folded: WdlExpression = expressions[0]
+        for idx, operator in enumerate(operators):
+            folded = WdlBinaryOperation(folded, operator, expressions[idx + 1])
+        return folded
 
     # ------------------------------------------------------------------
     # Document & version
@@ -1405,74 +1426,96 @@ class WdlV1Loader(WdlV1ParserVisitor):
     # Binary operators
     def visitLogicalOrExprOperation(self, ctx: Any) -> Any:
         self.visitChildren(ctx)
-        right = self._pop_with_type(WdlExpression)
-        left = self._pop_with_type(WdlExpression)
-        self.stack.append(WdlBinaryOperation(left, WdlBinaryOperator.LOGICAL_OR, right))
+        operator_symbols = self._collect_binary_operator_symbols(ctx)
+        if not operator_symbols:
+            return None
+        expressions = self._pop_expression_chain(len(operator_symbols) + 1)
+        operators = [WdlBinaryOperator.LOGICAL_OR] * len(operator_symbols)
+        self.stack.append(self._fold_binary_operations(expressions, operators))
         return None
 
     def visitLogicalAndExprOperation(self, ctx: Any) -> Any:
         self.visitChildren(ctx)
-        right = self._pop_with_type(WdlExpression)
-        left = self._pop_with_type(WdlExpression)
-        self.stack.append(
-            WdlBinaryOperation(left, WdlBinaryOperator.LOGICAL_AND, right)
-        )
+        operator_symbols = self._collect_binary_operator_symbols(ctx)
+        if not operator_symbols:
+            return None
+        expressions = self._pop_expression_chain(len(operator_symbols) + 1)
+        operators = [WdlBinaryOperator.LOGICAL_AND] * len(operator_symbols)
+        self.stack.append(self._fold_binary_operations(expressions, operators))
         return None
 
     def visitEqualityExprOperation(self, ctx: Any) -> Any:
         self.visitChildren(ctx)
-        right = self._pop_with_type(WdlExpression)
-        left = self._pop_with_type(WdlExpression)
-        op = (
-            WdlBinaryOperator.EQUAL
-            if self._maybe_token(ctx, "EQUAL") is not None
-            else WdlBinaryOperator.NOT_EQUAL
-        )
-        self.stack.append(WdlBinaryOperation(left, op, right))
+        operator_symbols = self._collect_binary_operator_symbols(ctx)
+        if not operator_symbols:
+            return None
+        expressions = self._pop_expression_chain(len(operator_symbols) + 1)
+        operators: list[WdlBinaryOperator] = []
+        for symbol in operator_symbols:
+            if symbol == "==":
+                operators.append(WdlBinaryOperator.EQUAL)
+            elif symbol == "!=":
+                operators.append(WdlBinaryOperator.NOT_EQUAL)
+            else:
+                raise AssertionError(f"Unknown equality operator: {symbol}")
+        self.stack.append(self._fold_binary_operations(expressions, operators))
         return None
 
     def visitComparisonExprOperation(self, ctx: Any) -> Any:
         self.visitChildren(ctx)
-        right = self._pop_with_type(WdlExpression)
-        left = self._pop_with_type(WdlExpression)
-        if self._maybe_token(ctx, "LESS") is not None:
-            op = WdlBinaryOperator.LESS
-        elif self._maybe_token(ctx, "LESS_EQUAL") is not None:
-            op = WdlBinaryOperator.LESS_EQUAL
-        elif self._maybe_token(ctx, "GREATER") is not None:
-            op = WdlBinaryOperator.GREATER
-        elif self._maybe_token(ctx, "GREATER_EQUAL") is not None:
-            op = WdlBinaryOperator.GREATER_EQUAL
-        else:
-            raise AssertionError("Unknown comparison operator")
-        self.stack.append(WdlBinaryOperation(left, op, right))
+        operator_symbols = self._collect_binary_operator_symbols(ctx)
+        if not operator_symbols:
+            return None
+        expressions = self._pop_expression_chain(len(operator_symbols) + 1)
+        operators: list[WdlBinaryOperator] = []
+        for symbol in operator_symbols:
+            if symbol == "<":
+                operators.append(WdlBinaryOperator.LESS)
+            elif symbol == "<=":
+                operators.append(WdlBinaryOperator.LESS_EQUAL)
+            elif symbol == ">":
+                operators.append(WdlBinaryOperator.GREATER)
+            elif symbol == ">=":
+                operators.append(WdlBinaryOperator.GREATER_EQUAL)
+            else:
+                raise AssertionError(f"Unknown comparison operator: {symbol}")
+        self.stack.append(self._fold_binary_operations(expressions, operators))
         return None
 
     def visitAdditiveExprOperation(self, ctx: Any) -> Any:
         self.visitChildren(ctx)
-        right = self._pop_with_type(WdlExpression)
-        left = self._pop_with_type(WdlExpression)
-        op = (
-            WdlBinaryOperator.ADD
-            if self._maybe_token(ctx, "PLUS") is not None
-            else WdlBinaryOperator.SUBTRACT
-        )
-        self.stack.append(WdlBinaryOperation(left, op, right))
+        operator_symbols = self._collect_binary_operator_symbols(ctx)
+        if not operator_symbols:
+            return None
+        expressions = self._pop_expression_chain(len(operator_symbols) + 1)
+        operators: list[WdlBinaryOperator] = []
+        for symbol in operator_symbols:
+            if symbol == "+":
+                operators.append(WdlBinaryOperator.ADD)
+            elif symbol == "-":
+                operators.append(WdlBinaryOperator.SUBTRACT)
+            else:
+                raise AssertionError(f"Unknown additive operator: {symbol}")
+        self.stack.append(self._fold_binary_operations(expressions, operators))
         return None
 
     def visitMultiplicativeExprOperation(self, ctx: Any) -> Any:
         self.visitChildren(ctx)
-        right = self._pop_with_type(WdlExpression)
-        left = self._pop_with_type(WdlExpression)
-        if self._maybe_token(ctx, "ASTERISK") is not None:
-            op = WdlBinaryOperator.MULTIPLY
-        elif self._maybe_token(ctx, "SLASH") is not None:
-            op = WdlBinaryOperator.DIVIDE
-        elif self._maybe_token(ctx, "PERCENT") is not None:
-            op = WdlBinaryOperator.MODULUS
-        else:
-            raise AssertionError("Unknown multiplicative operator")
-        self.stack.append(WdlBinaryOperation(left, op, right))
+        operator_symbols = self._collect_binary_operator_symbols(ctx)
+        if not operator_symbols:
+            return None
+        expressions = self._pop_expression_chain(len(operator_symbols) + 1)
+        operators: list[WdlBinaryOperator] = []
+        for symbol in operator_symbols:
+            if symbol == "*":
+                operators.append(WdlBinaryOperator.MULTIPLY)
+            elif symbol == "/":
+                operators.append(WdlBinaryOperator.DIVIDE)
+            elif symbol == "%":
+                operators.append(WdlBinaryOperator.MODULUS)
+            else:
+                raise AssertionError(f"Unknown multiplicative operator: {symbol}")
+        self.stack.append(self._fold_binary_operations(expressions, operators))
         return None
 
     def visitPowerExprOperation(self, ctx: Any) -> Any:

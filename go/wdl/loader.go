@@ -64,24 +64,11 @@ func WithMaxImportDepth(max int) LoadOption {
 // WdlV1Loader parses WDL 1.x source and optionally resolves imports recursively.
 type WdlV1Loader struct{}
 
-// Loader is a backward-compatible alias for WdlV1Loader.
-//
-// Deprecated: use WdlV1Loader/NewWdlV1Loader to make version intent explicit.
-type Loader = WdlV1Loader
-
 // NewWdlV1Loader creates a WDL 1.x loader with no internal state.
 //
 // Create one when you want method-style loading calls; package helpers use this
 // constructor internally.
 func NewWdlV1Loader() *WdlV1Loader { return &WdlV1Loader{} }
-
-// NewLoader creates a Loader with no internal state.
-//
-// Create one when you want method-style loading calls; package helpers use this
-// constructor internally.
-//
-// Deprecated: use NewWdlV1Loader.
-func NewLoader() *Loader { return NewWdlV1Loader() }
 
 // LoadString parses source text, resolves imports, and optionally validates.
 //

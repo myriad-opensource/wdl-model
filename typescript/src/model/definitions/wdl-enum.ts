@@ -41,4 +41,15 @@ export class WdlEnum {
   public elements(): WdlEnumChoice[] {
     return this.elementValues;
   }
+
+  /** Returns whether a choice with the supplied symbol exists. */
+  public hasChoice(choiceName: string | undefined): boolean {
+    return this.choice(choiceName) !== undefined;
+  }
+
+  /** Returns the enum choice by symbol, if present. */
+  public choice(choiceName: string | undefined): WdlEnumChoice | undefined {
+    if (!choiceName || !choiceName.trim()) return undefined;
+    return this.elementValues.find((choice) => choice.getKey() === choiceName);
+  }
 }

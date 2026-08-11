@@ -50,4 +50,23 @@ export class WdlStruct {
   public elements(): WdlStructElement[] {
     return this.elementValues;
   }
+
+  /** Returns whether a member with the supplied name exists. */
+  public hasMember(memberName: string | undefined): boolean {
+    return this.member(memberName) !== undefined;
+  }
+
+  /** Returns the declared member by name, if present. */
+  public member(memberName: string | undefined): WdlStructMember | undefined {
+    if (!memberName || !memberName.trim()) return undefined;
+    for (const element of this.elementValues) {
+      if (element instanceof WdlStructMember && element.getName() === memberName) return element;
+    }
+    return undefined;
+  }
+
+  /** Returns the declared member type by name, if present. */
+  public memberType(memberName: string | undefined): WdlType | undefined {
+    return this.member(memberName)?.getType();
+  }
 }

@@ -43,7 +43,7 @@ This library helps you:
 `WdlV1Loader` is the entry point for parsing and import-aware document loading.
 
 - Imports are resolved recursively and attached to the root `WdlDocument` through `importedDocuments`.
-- Resolution is delegated to `WdlImportResolver` implementations.
+- Resolution is delegated to `WdlImportResolverBase` implementations.
 - The filesystem resolver (`WdlImportResolverFilesystem`) supports local and relative paths and rejects network protocols (`http`, `https`) for deterministic local behavior.
 - Custom resolvers can be used when alternative import sources are needed.
 

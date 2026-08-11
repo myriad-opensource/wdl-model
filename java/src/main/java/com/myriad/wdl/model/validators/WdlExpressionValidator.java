@@ -34,10 +34,12 @@ import com.myriad.wdl.model.types.WdlMapType;
 import com.myriad.wdl.model.types.WdlPairType;
 import com.myriad.wdl.model.types.WdlPrimitiveType;
 import com.myriad.wdl.model.types.WdlType;
+import com.myriad.wdl.model.types.WdlTypeInference;
 import com.myriad.wdl.model.types.WdlTypeReferenceType;
 import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -65,6 +67,8 @@ public class WdlExpressionValidator extends WdlExpressionProcessorBase {
   private final Map<String, Map<String, WdlType>> callOutputTypes;
   private final Map<String, Set<String>> structMembers;
   private final Map<String, Map<String, WdlType>> structMemberTypes;
+  private final Map<String, WdlType> enumValueTypes;
+  private final Map<String, Set<String>> enumChoiceNames;
   private final WdlVersion documentVersion;
   private final BiConsumer<WdlSemanticError.Code, String> addError;
   private final WdlFunctionValidator functionValidator;
@@ -76,6 +80,8 @@ public class WdlExpressionValidator extends WdlExpressionProcessorBase {
       Map<String, Map<String, WdlType>> callOutputTypes,
       Map<String, Set<String>> structMembers,
       Map<String, Map<String, WdlType>> structMemberTypes,
+      Map<String, WdlType> enumValueTypes,
+      Map<String, Set<String>> enumChoiceNames,
       WdlVersion documentVersion,
       BiConsumer<WdlSemanticError.Code, String> addError) {
     this.scopeTypes = scopeTypes;
@@ -84,6 +90,8 @@ public class WdlExpressionValidator extends WdlExpressionProcessorBase {
     this.callOutputTypes = callOutputTypes;
     this.structMembers = structMembers;
     this.structMemberTypes = structMemberTypes;
+    this.enumValueTypes = enumValueTypes;
+    this.enumChoiceNames = enumChoiceNames;
     this.documentVersion = documentVersion;
     this.addError = addError;
     this.functionValidator =
@@ -199,6 +207,21 @@ public class WdlExpressionValidator extends WdlExpressionProcessorBase {
     if (isExplicitNoneExpression(expression)) {
       return expectedType.isOptional();
     }
+    if (isStructTypeReference(expectedType)
+        && (expression instanceof WdlStructLiteral
+            || expression instanceof WdlObjectLiteral
+            || expression instanceof WdlMapLiteral)) {
+      return isStructAssignableFromExpression(structName(expectedType), expression);
+    }
+    if (isEnumTypeReference(expectedType)) {
+      Object value = evaluate(expression);
+      if (value instanceof String) {
+        Set<String> choices = enumChoiceNames.get(structName(expectedType));
+        if (choices != null && !choices.isEmpty()) {
+          return choices.contains(value);
+        }
+      }
+    }
     if (expectedType instanceof WdlArrayType && expression instanceof WdlArrayLiteral) {
       WdlType memberType = ((WdlArrayType) expectedType).memberType();
       for (WdlExpression item : ((WdlArrayLiteral) expression).entries()) {
@@ -241,20 +264,23 @@ public class WdlExpressionValidator extends WdlExpressionProcessorBase {
       return null;
     }
 
-    if (expression instanceof WdlIntLiteral) {
-      return primitive(WdlPrimitiveType.Type.INT);
-    }
-    if (expression instanceof WdlFloatLiteral) {
-      return primitive(WdlPrimitiveType.Type.FLOAT);
-    }
-    if (expression instanceof WdlBooleanLiteral) {
-      return primitive(WdlPrimitiveType.Type.BOOLEAN);
-    }
-    if (expression instanceof WdlStringLiteral) {
-      return primitive(WdlPrimitiveType.Type.STRING);
-    }
     if (expression instanceof WdlNullLiteral) {
       return null;
+    }
+
+    if (expression instanceof WdlIntLiteral
+        || expression instanceof WdlFloatLiteral
+        || expression instanceof WdlBooleanLiteral
+        || expression instanceof WdlStringLiteral
+        || expression instanceof WdlObjectLiteral
+        || expression instanceof WdlStructLiteral) {
+      WdlType literalType = WdlTypeInference.inferLiteralExpressionType(expression);
+      if (literalType != null) {
+        return literalType;
+      }
+      if (expression instanceof WdlStructLiteral) {
+        return new WdlTypeReferenceType("Object", false);
+      }
     }
 
     if (expression instanceof WdlVariable) {
@@ -675,6 +701,46 @@ public class WdlExpressionValidator extends WdlExpressionProcessorBase {
     if (!expected.isOptional() && actual.isOptional()) {
       return false;
     }
+
+    if (isPrimitive(expected, WdlPrimitiveType.Type.STRING) && isEnumTypeReference(actual)) {
+      return true;
+    }
+    if (isEnumTypeReference(expected) && isPrimitive(actual, WdlPrimitiveType.Type.STRING)) {
+      return true;
+    }
+    if ((isPrimitive(expected, WdlPrimitiveType.Type.FILE)
+            || isPrimitive(expected, WdlPrimitiveType.Type.DIRECTORY))
+        && isPrimitive(actual, WdlPrimitiveType.Type.STRING)) {
+      return true;
+    }
+    if (isObjectTypeReference(expected)
+        && (isStructTypeReference(actual)
+            || isObjectTypeReference(actual)
+            || (actual instanceof WdlMapType
+                && isPrimitive(((WdlMapType) actual).keyType(), WdlPrimitiveType.Type.STRING)))) {
+      return true;
+    }
+    if (expected instanceof WdlMapType && isStructTypeReference(actual)) {
+      WdlMapType expectedMap = (WdlMapType) expected;
+      if (!isPrimitive(expectedMap.keyType(), WdlPrimitiveType.Type.STRING)) {
+        return false;
+      }
+      Map<String, WdlType> members = structMemberTypes.get(structName(actual));
+      if (members == null) {
+        return false;
+      }
+      for (WdlType memberType : members.values()) {
+        if (!isTypeAssignable(expectedMap.valueType(), memberType)) {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    if (isStructTypeReference(expected) && isStructTypeReference(actual)) {
+      return areStructReferencesCompatible(structName(expected), structName(actual), new HashSet<>());
+    }
+
     if (expected.componentType() != actual.componentType()) {
       if (isPrimitive(expected, WdlPrimitiveType.Type.FLOAT)
           && isPrimitive(actual, WdlPrimitiveType.Type.INT)) {
@@ -700,12 +766,128 @@ public class WdlExpressionValidator extends WdlExpressionProcessorBase {
             && isTypeAssignable(
                 ((WdlPairType) expected).rightType(), ((WdlPairType) actual).rightType());
       case TYPEREF:
-        return Objects.equals(
-            ((WdlTypeReferenceType) expected).referenceName(),
-            ((WdlTypeReferenceType) actual).referenceName());
+        return Objects.equals(structName(expected), structName(actual));
       default:
         return true;
     }
+  }
+
+  private boolean isStructAssignableFromExpression(String expectedStructName, WdlExpression expr) {
+    Map<String, WdlType> expectedMembers = structMemberTypes.get(expectedStructName);
+    if (expectedMembers == null) {
+      return false;
+    }
+
+    if (expr instanceof WdlStructLiteral) {
+      WdlStructLiteral structLiteral = (WdlStructLiteral) expr;
+      String actualName = structLiteral.getName();
+      if (actualName != null && !actualName.isBlank()) {
+        if (!areStructReferencesCompatible(expectedStructName, actualName, new HashSet<>())) {
+          return false;
+        }
+      }
+      return keyedEntriesMatchExpectedMembers(expectedMembers, structLiteral.entries());
+    }
+
+    if (expr instanceof WdlObjectLiteral) {
+      return keyedEntriesMatchExpectedMembers(expectedMembers, ((WdlObjectLiteral) expr).entries());
+    }
+
+    if (expr instanceof WdlMapLiteral) {
+      Map<String, WdlExpression> entries = new HashMap<>();
+      for (WdlMapEntry entry : ((WdlMapLiteral) expr).entries()) {
+        Object key = evaluate(entry.getKey());
+        if (!(key instanceof String)) {
+          return false;
+        }
+        entries.put((String) key, entry.getValue());
+      }
+      if (!entries.keySet().equals(expectedMembers.keySet())) {
+        return false;
+      }
+      for (Map.Entry<String, WdlType> expected : expectedMembers.entrySet()) {
+        if (!isAssignableFrom(expected.getValue(), entries.get(expected.getKey()))) {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    return false;
+  }
+
+  private <T extends com.myriad.wdl.model.base.WdlKeyValue.WdlStringKeyValue>
+      boolean keyedEntriesMatchExpectedMembers(
+          Map<String, WdlType> expectedMembers, java.util.ArrayDeque<T> entries) {
+    Map<String, WdlExpression> actualEntries = new HashMap<>();
+    for (T entry : entries) {
+      actualEntries.put(entry.getKey(), entry.getValue());
+    }
+    if (!actualEntries.keySet().equals(expectedMembers.keySet())) {
+      return false;
+    }
+    for (Map.Entry<String, WdlType> expected : expectedMembers.entrySet()) {
+      if (!isAssignableFrom(expected.getValue(), actualEntries.get(expected.getKey()))) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private boolean areStructReferencesCompatible(
+      String expectedStructName, String actualStructName, Set<String> visitingPairs) {
+    if (Objects.equals(expectedStructName, actualStructName)) {
+      return true;
+    }
+    if (expectedStructName == null || actualStructName == null) {
+      return false;
+    }
+
+    String pairKey = expectedStructName + "<=" + actualStructName;
+    if (!visitingPairs.add(pairKey)) {
+      return true;
+    }
+
+    Map<String, WdlType> expectedMembers = structMemberTypes.get(expectedStructName);
+    Map<String, WdlType> actualMembers = structMemberTypes.get(actualStructName);
+    if (expectedMembers == null || actualMembers == null) {
+      return false;
+    }
+    if (!expectedMembers.keySet().equals(actualMembers.keySet())) {
+      return false;
+    }
+
+    for (String member : expectedMembers.keySet()) {
+      WdlType expectedMemberType = expectedMembers.get(member);
+      WdlType actualMemberType = actualMembers.get(member);
+      if (isStructTypeReference(expectedMemberType) && isStructTypeReference(actualMemberType)) {
+        if (!areStructReferencesCompatible(
+            structName(expectedMemberType), structName(actualMemberType), visitingPairs)) {
+          return false;
+        }
+        continue;
+      }
+      if (!isTypeAssignable(expectedMemberType, actualMemberType)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private boolean isEnumTypeReference(WdlType type) {
+    return type instanceof WdlTypeReferenceType && enumValueTypes.containsKey(structName(type));
+  }
+
+  private boolean isStructTypeReference(WdlType type) {
+    return type instanceof WdlTypeReferenceType && structMemberTypes.containsKey(structName(type));
+  }
+
+  private boolean isObjectTypeReference(WdlType type) {
+    return type instanceof WdlTypeReferenceType && "Object".equals(structName(type));
+  }
+
+  private String structName(WdlType type) {
+    return type instanceof WdlTypeReferenceType ? ((WdlTypeReferenceType) type).referenceName() : null;
   }
 
   protected boolean isPrimitive(WdlType type, WdlPrimitiveType.Type primitiveType) {

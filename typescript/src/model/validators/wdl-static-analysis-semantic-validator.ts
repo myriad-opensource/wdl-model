@@ -469,8 +469,8 @@ export class WdlStaticAnalysisSemanticValidator extends WdlSemanticValidator {
         }
       }
 
-      const enumNames = this.visibleImportedEnumNames(imp, importedDocument);
-      for (const visibleName of enumNames) {
+      const enumNames = this.visibleImportedEnums(imp, importedDocument);
+      for (const visibleName of enumNames.keys()) {
         this.knownTypeNames.add(visibleName);
         if (localTopLevelNames.has(visibleName)) {
           this.addError(

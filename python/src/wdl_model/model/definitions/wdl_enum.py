@@ -28,3 +28,16 @@ class WdlEnum:
     def elements(self) -> deque[WdlEnumChoice]:
         """Return the ordered enum choices."""
         return self._elements
+
+    def hasChoice(self, choice_name: str | None) -> bool:
+        """Return whether a choice with the supplied symbol exists."""
+        return self.choice(choice_name) is not None
+
+    def choice(self, choice_name: str | None) -> WdlEnumChoice | None:
+        """Return the enum choice by symbol name, if present."""
+        if choice_name is None or not choice_name.strip():
+            return None
+        for choice in self._elements:
+            if choice.getKey() == choice_name:
+                return choice
+        return None

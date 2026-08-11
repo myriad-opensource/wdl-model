@@ -59,6 +59,7 @@ import com.myriad.wdl.model.types.WdlPairType;
 import com.myriad.wdl.model.types.WdlPrimitiveType;
 import com.myriad.wdl.model.types.WdlType;
 import com.myriad.wdl.model.types.WdlTypeReferenceType;
+import com.myriad.wdl.model.types.WdlTypeInference;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -261,6 +262,27 @@ public class WdlProcessorBase implements WdlProcessor {
             + " node (context node:"
             + ctx.getClass().getSimpleName()
             + ")");
+  }
+
+  /**
+   * Infer an enum's effective value type from its members.
+   *
+   * <p>If the enum has an explicit declared value type, that type is returned. Otherwise the
+   * choice values are merged using WDL-compatible widening (for example Int + Float -> Float).
+   * If no explicit values are present, String is assumed.
+   */
+  protected Optional<WdlType> inferEnumValueType(WdlEnum enumDef) {
+    return WdlTypeInference.inferEnumValueType(enumDef);
+  }
+
+  /**
+   * Infer the static literal type for expression forms that are self-typed.
+   *
+   * <p>This helper intentionally avoids scope-aware inference and is safe for structural model
+   * queries in processors.
+   */
+  protected WdlType inferLiteralExpressionType(WdlExpression expression) {
+    return WdlTypeInference.inferLiteralExpressionType(expression);
   }
 
   /**

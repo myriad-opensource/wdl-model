@@ -7,7 +7,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.myriad.wdl.model.errors.WdlImportException;
-import com.myriad.wdl.model.resolvers.WdlImportResolver;
+import com.myriad.wdl.model.resolvers.WdlImportResolverApacheHttp;
 import java.net.URI;
 import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
 import org.apache.hc.core5.http.ClassicHttpResponse;
@@ -25,8 +25,8 @@ class WdlImportResolverTest {
     when(response.getEntity()).thenReturn(new StringEntity("version 1.3\n"));
     when(httpClient.executeOpen(any(), any(), any())).thenReturn(response);
 
-    WdlImportResolver resolver =
-        new WdlImportResolver(httpClient, Timeout.ofSeconds(2), Timeout.ofSeconds(2));
+    WdlImportResolverApacheHttp resolver =
+      new WdlImportResolverApacheHttp(httpClient, Timeout.ofSeconds(2), Timeout.ofSeconds(2));
 
     String text = resolver.resolveImport(null, "http://example.com/workflow.wdl");
     assertEquals("version 1.3\n", text);
@@ -40,8 +40,8 @@ class WdlImportResolverTest {
     when(response.getEntity()).thenReturn(new StringEntity("version 1.3\n"));
     when(httpClient.executeOpen(any(), any(), any())).thenReturn(response);
 
-    WdlImportResolver resolver =
-        new WdlImportResolver(httpClient, Timeout.ofSeconds(2), Timeout.ofSeconds(2));
+    WdlImportResolverApacheHttp resolver =
+      new WdlImportResolverApacheHttp(httpClient, Timeout.ofSeconds(2), Timeout.ofSeconds(2));
 
     String text = resolver.resolveImport(null, "https://example.com/workflow.wdl");
     assertEquals("version 1.3\n", text);
@@ -54,8 +54,8 @@ class WdlImportResolverTest {
     when(response.getCode()).thenReturn(404);
     when(httpClient.executeOpen(any(), any(), any())).thenReturn(response);
 
-    WdlImportResolver resolver =
-        new WdlImportResolver(httpClient, Timeout.ofSeconds(2), Timeout.ofSeconds(2));
+    WdlImportResolverApacheHttp resolver =
+      new WdlImportResolverApacheHttp(httpClient, Timeout.ofSeconds(2), Timeout.ofSeconds(2));
 
     assertThrows(
         WdlImportException.class,
@@ -64,7 +64,7 @@ class WdlImportResolverTest {
 
   @Test
   void throwsWhenProtocolIsUnsupported() {
-    WdlImportResolver resolver = new WdlImportResolver();
+    WdlImportResolverApacheHttp resolver = new WdlImportResolverApacheHttp();
     assertThrows(
         WdlImportException.class,
         () ->

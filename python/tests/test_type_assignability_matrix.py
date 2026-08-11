@@ -16,6 +16,8 @@ FIXTURES_ROOT = Path("wdl_tests") / "type_assignability_matrix"
         "optional_from_none_ok.wdl",
         "array_nested_ok.wdl",
         "map_value_type_ok.wdl",
+        "file_directory_from_string_ok.wdl",
+        "struct_to_struct_coercion_ok.wdl",
     ],
 )
 def test_accepts_compatible_assignments(fixture: str) -> None:
@@ -30,6 +32,7 @@ def test_accepts_compatible_assignments(fixture: str) -> None:
         "required_string_to_int_fail.wdl",
         "array_string_to_int_fail.wdl",
         "map_value_type_fail.wdl",
+        "struct_to_struct_incompatible_fail.wdl",
     ],
 )
 def test_rejects_incompatible_assignments(fixture: str) -> None:

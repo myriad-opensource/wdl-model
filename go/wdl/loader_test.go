@@ -11,7 +11,7 @@ import (
 
 func TestLoadStringParsesVersion(t *testing.T) {
 	src := "version 1.2\nworkflow demo {\n}\n"
-	loader := NewLoader()
+	loader := NewWdlV1Loader()
 	doc, err := loader.LoadString(context.Background(), src, WithResolver(nil))
 	if err != nil {
 		t.Fatalf("expected parse success, got error: %v", err)
@@ -45,7 +45,7 @@ func TestLoadFileResolvesFilesystemImports(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolver init failed: %v", err)
 	}
-	loader := NewLoader()
+	loader := NewWdlV1Loader()
 	doc, err := loader.LoadFile(context.Background(), rootPath, WithResolver(resolver))
 	if err != nil {
 		t.Fatalf("load failed: %v", err)
@@ -75,7 +75,7 @@ func TestLoadStringResolvesHTTPImports(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolver init failed: %v", err)
 	}
-	loader := NewLoader()
+	loader := NewWdlV1Loader()
 	doc, err := loader.LoadString(context.Background(), src, WithResolver(resolver), WithSourceLocation(filepath.Join(t.TempDir(), "root.wdl")))
 	if err != nil {
 		t.Fatalf("load failed: %v", err)
@@ -92,7 +92,7 @@ func TestLoadStringExtractsImportVariants(t *testing.T) {
 		"import { foo as bar, baz } from \"members.wdl\"\n" +
 		"workflow wf {}\n"
 
-	loader := NewLoader()
+	loader := NewWdlV1Loader()
 	doc, err := loader.LoadString(context.Background(), src, WithResolver(nil))
 	if err != nil {
 		t.Fatalf("expected parse success, got error: %v", err)
@@ -116,7 +116,7 @@ func TestLoadStringExtractsImportVariants(t *testing.T) {
 
 func TestLoadStringReturnsSyntaxError(t *testing.T) {
 	src := "version 1.0\nworkflow bad {\ncall\n}\n"
-	loader := NewLoader()
+	loader := NewWdlV1Loader()
 	_, err := loader.LoadString(context.Background(), src, WithResolver(nil))
 	if err == nil {
 		t.Fatal("expected syntax error")

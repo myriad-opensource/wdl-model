@@ -38,6 +38,22 @@ This library helps you:
 3. Process and traverse the model through visitor-style processor interfaces and base classes.
 4. Validate and lint documents with progressively stricter validators.
 
+## Generated Parser Code
+
+Generated ANTLR parser code is isolated in:
+
+- `src/wdl_model/grammar/v1`
+
+Generated parser `.py` artifacts in that package are committed in this repo.
+This is required so git-based dependency consumers can build/import without
+running generation steps.
+
+For maintainers:
+
+- Regenerate grammar bindings with `make generate-grammar`.
+- Use `make clean-grammar` only when you explicitly want to remove generated grammar artifacts.
+- `make publish-release` verifies `python/src/wdl_model/grammar/v1` is clean after generation and fails if generated files are out of sync or untracked.
+
 ## Loading Files And Imports
 
 WDL source is loaded through the v1 loader APIs.
@@ -129,3 +145,4 @@ The target also checks that:
 - You are on the release branch (default `main`).
 - The tag does not already exist.
 - `gh` CLI is installed.
+- Generated grammar files are up to date and committed under `src/wdl_model/grammar/v1`.
