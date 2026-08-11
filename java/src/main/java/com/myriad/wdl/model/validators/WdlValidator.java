@@ -28,7 +28,9 @@ import com.myriad.wdl.model.statements.WdlStatement;
 import com.myriad.wdl.model.types.WdlArrayType;
 import com.myriad.wdl.model.types.WdlMapType;
 import com.myriad.wdl.model.types.WdlPairType;
+import com.myriad.wdl.model.types.WdlPrimitiveType;
 import com.myriad.wdl.model.types.WdlType;
+import com.myriad.wdl.model.types.WdlTypeInference;
 import com.myriad.wdl.model.types.WdlTypeReferenceType;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -61,6 +63,8 @@ public class WdlValidator extends WdlProcessorBase {
   private final Map<String, Set<String>> structMembers = new HashMap<>();
   private final Map<String, Map<String, WdlType>> structMemberTypes = new HashMap<>();
   private final Map<String, EnumShape> enumShapes = new HashMap<>();
+  private final Map<String, WdlType> enumValueTypes = new HashMap<>();
+  private final Map<String, Set<String>> enumChoiceNames = new HashMap<>();
 
   private Map<String, WdlType> scopeTypes = new HashMap<>();
   private Map<String, Object> scopeValues = new HashMap<>();
@@ -119,6 +123,8 @@ public class WdlValidator extends WdlProcessorBase {
     structMembers.clear();
     structMemberTypes.clear();
     enumShapes.clear();
+    enumValueTypes.clear();
+    enumChoiceNames.clear();
 
     if (document == null) {
       return;
@@ -421,12 +427,26 @@ public class WdlValidator extends WdlProcessorBase {
       EnumShape existing = enumShapes.get(localName);
       if (existing == null) {
         enumShapes.put(localName, incoming);
+        enumValueTypes.put(localName, effectiveEnumValueType(en));
+        enumChoiceNames.put(localName, enumChoiceNameSet(en));
       } else if (!existing.isCompatibleWith(incoming)) {
         addError(
             WdlSemanticError.Code.TYPE_MISMATCH,
             "Imported enum '"
                 + localName
                 + "' has incompatible definitions across imports; use aliases to disambiguate");
+      } else {
+        WdlType existingType = enumValueTypes.get(localName);
+        WdlType incomingType = effectiveEnumValueType(en);
+        if (existingType != null
+            && incomingType != null
+            && !Objects.equals(typeToWdl(existingType), typeToWdl(incomingType))) {
+          addError(
+              WdlSemanticError.Code.TYPE_MISMATCH,
+              "Imported enum '"
+                  + localName
+                  + "' has incompatible value types across imports; use aliases to disambiguate");
+        }
       }
     }
   }
@@ -595,6 +615,19 @@ public class WdlValidator extends WdlProcessorBase {
       return;
     }
     enumShapes.put(en.getName(), incoming);
+    enumValueTypes.put(en.getName(), effectiveEnumValueType(en));
+    enumChoiceNames.put(en.getName(), enumChoiceNameSet(en));
+  }
+
+  private WdlType effectiveEnumValueType(WdlEnum en) {
+    return WdlTypeInference.inferEnumValueType(en)
+        .orElseGet(() -> new WdlPrimitiveType(WdlPrimitiveType.Type.STRING, false));
+  }
+
+  private Set<String> enumChoiceNameSet(WdlEnum en) {
+    Set<String> names = new LinkedHashSet<>();
+    en.elements().forEach(choice -> addIfNonBlank(names, choice.getKey()));
+    return names;
   }
 
   private CallableContract buildTaskContract(WdlTask task) {
@@ -722,6 +755,8 @@ public class WdlValidator extends WdlProcessorBase {
             callOutputTypes,
             structMembers,
             structMemberTypes,
+          enumValueTypes,
+          enumChoiceNames,
             currentDocumentVersion,
             this::addError);
 
@@ -932,6 +967,8 @@ public class WdlValidator extends WdlProcessorBase {
       Map<String, Map<String, WdlType>> callOutputTypes,
       Map<String, Set<String>> structMembers,
       Map<String, Map<String, WdlType>> structMemberTypes,
+    Map<String, WdlType> enumValueTypes,
+    Map<String, Set<String>> enumChoiceNames,
       WdlVersion documentVersion,
       BiConsumer<WdlSemanticError.Code, String> addError) {
     return new WdlExpressionValidator(
@@ -941,6 +978,8 @@ public class WdlValidator extends WdlProcessorBase {
         callOutputTypes,
         structMembers,
         structMemberTypes,
+      enumValueTypes,
+      enumChoiceNames,
         documentVersion,
         addError);
   }

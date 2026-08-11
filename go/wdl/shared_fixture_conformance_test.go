@@ -47,8 +47,15 @@ func TestTypeAssignabilityMatrixFixtures(t *testing.T) {
 			"required_string_to_int_fail.wdl",
 			"array_string_to_int_fail.wdl",
 			"map_value_type_fail.wdl",
+			"struct_to_struct_incompatible_fail.wdl",
 		},
-		[]string{"optional_from_none_ok.wdl", "array_nested_ok.wdl", "map_value_type_ok.wdl"},
+		[]string{
+			"optional_from_none_ok.wdl",
+			"array_nested_ok.wdl",
+			"map_value_type_ok.wdl",
+			"file_directory_from_string_ok.wdl",
+			"struct_to_struct_coercion_ok.wdl",
+		},
 	)
 }
 

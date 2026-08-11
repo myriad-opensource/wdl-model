@@ -48,10 +48,18 @@ type staticType struct {
 	right    *staticType
 }
 
+var staticStructMemberTypes = map[string]map[string]staticType{}
+
 func expressionStaticDiagnostics(root grammar.IDocumentContext, version Version) []Diagnostic {
 	if root == nil {
 		return nil
 	}
+	previousStructTypes := staticStructMemberTypes
+	staticStructMemberTypes = collectStructMemberTypes(root)
+	defer func() {
+		staticStructMemberTypes = previousStructTypes
+	}()
+
 	diagnostics := make([]Diagnostic, 0)
 	for _, element := range root.AllDocumentElement() {
 		workflow := element.WorkflowDefinition()
@@ -61,6 +69,38 @@ func expressionStaticDiagnostics(root grammar.IDocumentContext, version Version)
 		diagnostics = append(diagnostics, validateWorkflowExpressions(workflow, version)...)
 	}
 	return diagnostics
+}
+
+func collectStructMemberTypes(root grammar.IDocumentContext) map[string]map[string]staticType {
+	out := map[string]map[string]staticType{}
+	if root == nil {
+		return out
+	}
+	for _, element := range root.AllDocumentElement() {
+		structDef := element.StructDefinition()
+		if structDef == nil {
+			continue
+		}
+		structName := strictIdentifierText(structDef.StrictIdentifier())
+		if structName == "" {
+			continue
+		}
+		memberTypes := map[string]staticType{}
+		for _, item := range structDef.AllStructItem() {
+			memberCtx, ok := item.(*grammar.StructItemMemberDeclarationContext)
+			if !ok || memberCtx.StructDeclaration() == nil {
+				continue
+			}
+			member := memberCtx.StructDeclaration()
+			memberName := strictIdentifierText(member.StrictIdentifier())
+			if memberName == "" {
+				continue
+			}
+			memberTypes[memberName] = typeFromContext(member.Type_())
+		}
+		out[structName] = memberTypes
+	}
+	return out
 }
 
 // validateWorkflowExpressions applies expression checks to workflow content.
@@ -521,6 +561,10 @@ func inferPrimaryExpression(expr grammar.IPrimaryExpressionContext, scope map[st
 	}
 
 	if expr.StructLiteral() != nil {
+		name := strictIdentifierText(expr.StructLiteral().StrictIdentifier())
+		if name != "" {
+			return staticType{kind: staticTypeRef, name: name}, nil
+		}
 		return staticType{kind: staticTypeObject}, nil
 	}
 	if expr.ObjectLiteral() != nil {
@@ -773,6 +817,9 @@ func isAssignable(expected staticType, actual staticType) bool {
 	if expected.kind == staticTypeFloat && actual.kind == staticTypeInt {
 		return true
 	}
+	if (expected.kind == staticTypeFile || expected.kind == staticTypeDir) && actual.kind == staticTypeString {
+		return true
+	}
 	if expected.kind != actual.kind {
 		return false
 	}
@@ -793,10 +840,51 @@ func isAssignable(expected staticType, actual staticType) bool {
 		}
 		return isAssignable(*expected.left, *actual.left) && isAssignable(*expected.right, *actual.right)
 	case staticTypeRef:
-		return expected.name == actual.name
+		if expected.name == actual.name {
+			return true
+		}
+		return areStructRefsCompatible(expected.name, actual.name, map[string]struct{}{})
 	default:
 		return true
 	}
+}
+
+func areStructRefsCompatible(expectedName string, actualName string, visiting map[string]struct{}) bool {
+	if expectedName == actualName {
+		return true
+	}
+	if expectedName == "" || actualName == "" {
+		return false
+	}
+	expectedMembers, expectedOK := staticStructMemberTypes[expectedName]
+	actualMembers, actualOK := staticStructMemberTypes[actualName]
+	if !expectedOK || !actualOK {
+		return false
+	}
+
+	pairKey := expectedName + "<=" + actualName
+	if _, seen := visiting[pairKey]; seen {
+		return true
+	}
+	visiting[pairKey] = struct{}{}
+
+	for memberName, expectedMemberType := range expectedMembers {
+		actualMemberType, ok := actualMembers[memberName]
+		if !ok {
+			return false
+		}
+		if expectedMemberType.kind == staticTypeRef && actualMemberType.kind == staticTypeRef {
+			if !areStructRefsCompatible(expectedMemberType.name, actualMemberType.name, visiting) {
+				return false
+			}
+			continue
+		}
+		if !isAssignable(expectedMemberType, actualMemberType) {
+			return false
+		}
+	}
+
+	return true
 }
 
 func areComparableForEquality(left staticType, right staticType) bool {
