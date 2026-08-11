@@ -1,6 +1,7 @@
 package com.myriad.wdl.model.statements;
 
 import com.myriad.wdl.model.base.WdlNode;
+import com.myriad.wdl.model.base.WdlSourceRange;
 import com.myriad.wdl.model.definitions.WdlWorkflow.WdlWorkflowElement;
 import com.myriad.wdl.model.expressions.WdlExpression;
 import java.util.ArrayDeque;
@@ -16,6 +17,7 @@ import lombok.Setter;
 public class WdlConditional implements WdlStatement, WdlWorkflowElement {
 
   @Getter @Setter private WdlExpression condition;
+  @Getter @Setter private WdlSourceRange sourceRange;
   private final ArrayDeque<WdlStatement> thenStatements = new ArrayDeque<>();
   private final ArrayDeque<WdlConditionalElseIf> elseIfs = new ArrayDeque<>();
   private final ArrayDeque<WdlStatement> elseStatements = new ArrayDeque<>();

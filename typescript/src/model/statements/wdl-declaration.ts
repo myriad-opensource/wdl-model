@@ -2,11 +2,14 @@
 import type { WdlTaskElement } from '../definitions/wdl-task.js';
 import type { WdlWorkflowElement } from '../definitions/wdl-workflow.js';
 import type { WdlExpression } from '../expressions/wdl-expression.js';
+import type { WdlSourceRange } from '../base/wdl-source-range.js';
 import type { WdlType } from '../types/wdl-type.js';
 import { WdlStatementComponentType, type WdlStatement } from './wdl-statement.js';
 
 /** Models a typed WDL declaration, optionally marked as an environment variable. */
 export class WdlDeclaration implements WdlStatement {
+  private sourceRangeValue: WdlSourceRange | undefined;
+
   /** Creates a declaration from its type, name, and environment-variable flag. */
   public constructor(
     protected typeValue?: WdlType,
@@ -41,6 +44,16 @@ export class WdlDeclaration implements WdlStatement {
   /** Returns the broad statement family for this node. */
   public componentType(): WdlStatementComponentType {
     return WdlStatementComponentType.DECLARATION;
+  }
+  /** Returns the source range of this declaration in the document, if set. */
+  public getSourceRange(): WdlSourceRange | undefined {
+    return this.sourceRangeValue;
+  }
+  /** Sets the source range of this declaration. */
+  public setSourceRange(
+    range: WdlSourceRange | undefined,
+  ): void {
+    this.sourceRangeValue = range;
   }
 }
 

@@ -2,6 +2,7 @@ package com.myriad.wdl.model.statements;
 
 import com.myriad.wdl.model.WdlDocument.WdlDocumentElement;
 import com.myriad.wdl.model.base.WdlNode;
+import com.myriad.wdl.model.base.WdlSourceRange;
 import com.myriad.wdl.model.expressions.WdlStringLiteral;
 import java.util.ArrayDeque;
 import lombok.Getter;
@@ -32,6 +33,7 @@ public abstract class WdlImport implements WdlDocumentElement {
 
   @Getter @Setter protected WdlStringLiteral source;
   @Getter @Setter protected String sourceText;
+  @Getter @Setter protected WdlSourceRange sourceRange;
 
   /** Resolver-normalized import identifier used as the lookup key in imported document maps. */
   @Getter @Setter protected String importIdentifier;

@@ -7,6 +7,8 @@ import {
   type Token,
 } from 'antlr4ng';
 
+import type { WdlSourceRange } from './base/wdl-source-range.js';
+
 import {
   AdditiveExprOperationContext,
   BoundDeclarationContext,
@@ -441,6 +443,7 @@ export class WdlV1Loader {
       for (const aliasCtx of aliasContexts) {
         value.members().push(this.buildImportAliasMember(aliasCtx));
       }
+      value.setSourceRange(this.rangeOf(ctx));
       return value;
     }
     if (ctx instanceof ImportStatementMembersContext) {
@@ -449,12 +452,14 @@ export class WdlV1Loader {
       for (const memberCtx of ctx.importMembers().importMember()) {
         value.members().push(this.buildImportMember(memberCtx));
       }
+      value.setSourceRange(this.rangeOf(ctx));
       return value;
     }
     const value = new WdlImportStar();
     value.setSource(
       this.buildImportUriLiteral((ctx as ImportStatementStarContext).importUriLiteral()),
     );
+    value.setSourceRange(this.rangeOf(ctx));
     return value;
   }
 
@@ -489,6 +494,7 @@ export class WdlV1Loader {
         value.elements().push(this.buildParameterMetadataSection(item.parameterMetadataSection()));
       }
     }
+    value.setSourceRange(this.rangeOf(ctx));
     return value;
   }
 
@@ -525,6 +531,7 @@ export class WdlV1Loader {
         : undefined;
       value.elements().push(new WdlEnumChoice(name, expr));
     }
+    value.setSourceRange(this.rangeOf(ctx));
     return value;
   }
 
@@ -664,6 +671,7 @@ export class WdlV1Loader {
       else if (element instanceof TaskDeclarationContext)
         value.elements().push(this.buildBoundDeclaration(element.boundDeclaration()));
     }
+    value.setSourceRange(this.rangeOf(ctx));
     return value;
   }
 
@@ -691,6 +699,7 @@ export class WdlV1Loader {
       else if (element instanceof WorkflowDeclarationContext)
         value.elements().push(this.buildBoundDeclaration(element.boundDeclaration()));
     }
+    value.setSourceRange(this.rangeOf(ctx));
     return value;
   }
 
@@ -824,6 +833,7 @@ export class WdlV1Loader {
       this.strictIdentifierText(ctx.strictIdentifier()),
       ctx.KEYWORD_ENV() !== null,
     );
+    value.setSourceRange(this.rangeOf(ctx));
     return value;
   }
 
@@ -834,6 +844,7 @@ export class WdlV1Loader {
       this.buildExpression(ctx.expression()),
     );
     value.setEnvironmentVariable(ctx.KEYWORD_ENV() !== null);
+    value.setSourceRange(this.rangeOf(ctx));
     return value;
   }
 
@@ -860,6 +871,7 @@ export class WdlV1Loader {
         value.inputs().push(new WdlCallInput(key, expression));
       }
     }
+    value.setSourceRange(this.rangeOf(ctx));
     return value;
   }
 
@@ -871,6 +883,7 @@ export class WdlV1Loader {
     for (const statement of ctx.scatterBody().workflowStatement()) {
       value.statements().push(this.buildWorkflowStatement(statement));
     }
+    value.setSourceRange(this.rangeOf(ctx));
     return value;
   }
 
@@ -892,6 +905,7 @@ export class WdlV1Loader {
         value.elseStatements().push(this.buildWorkflowStatement(statement));
       }
     }
+    value.setSourceRange(this.rangeOf(ctx));
     return value;
   }
 
@@ -1517,5 +1531,19 @@ export class WdlV1Loader {
 
   private static dottedIdentifierText(ctx: { getText(): string }): string {
     return ctx.getText();
+  }
+
+  /** Builds a WdlSourceRange from an ANTLR rule context's start/stop token positions. */
+  private static rangeOf(
+    ctx: ParserRuleContext,
+  ): WdlSourceRange | undefined {
+    if (!ctx.start) return undefined;
+    const stop = ctx.stop ?? ctx.start;
+    return {
+      startLine: ctx.start.line,
+      startColumn: ctx.start.column,
+      endLine: stop.line,
+      endColumn: stop.column + (stop.text?.length ?? 0),
+    };
   }
 }

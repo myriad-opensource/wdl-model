@@ -1,5 +1,6 @@
 /** Call statement nodes for the TypeScript WDL model. */
 import { WdlStringKeyValue } from '../base/wdl-key-value.js';
+import type { WdlSourceRange } from '../base/wdl-source-range.js';
 import type { WdlWorkflowElement } from '../definitions/wdl-workflow.js';
 import type { WdlExpression } from '../expressions/wdl-expression.js';
 import { WdlStatementComponentType, type WdlStatement } from './wdl-statement.js';
@@ -19,6 +20,7 @@ export class WdlCall implements WdlStatement, WdlWorkflowElement {
   private readonly afterDependencyValues: string[] = [];
   private aliasValue: string | undefined;
   private legacyInputColonUsedValue = false;
+  private sourceRangeValue: WdlSourceRange | undefined;
 
   /** Returns the target path segments for the invoked task or workflow. */
   public targetPath(): string[] {
@@ -51,6 +53,16 @@ export class WdlCall implements WdlStatement, WdlWorkflowElement {
   /** Sets whether the legacy `input:` prefix syntax was used. */
   public setLegacyInputColonUsed(legacy: boolean): void {
     this.legacyInputColonUsedValue = legacy;
+  }
+  /** Returns the source range of this call in the document, if set. */
+  public getSourceRange(): WdlSourceRange | undefined {
+    return this.sourceRangeValue;
+  }
+  /** Sets the source range of this call. */
+  public setSourceRange(
+    range: WdlSourceRange | undefined,
+  ): void {
+    this.sourceRangeValue = range;
   }
   /** Returns the broad statement family for this node. */
   public componentType(): WdlStatementComponentType {

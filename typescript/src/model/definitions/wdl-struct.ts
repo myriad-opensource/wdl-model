@@ -1,5 +1,6 @@
 /** Struct definition nodes for the TypeScript WDL model. */
 import type { WdlNode } from '../base/wdl-node.js';
+import type { WdlSourceRange } from '../base/wdl-source-range.js';
 import type { WdlType } from '../types/wdl-type.js';
 
 /** Marker for nodes that may appear directly inside a struct definition. */
@@ -34,6 +35,7 @@ export class WdlStructMember implements WdlStructElement {
 /** Models a WDL struct definition. */
 export class WdlStruct {
   private readonly elementValues: WdlStructElement[] = [];
+  private sourceRangeValue: WdlSourceRange | undefined;
 
   /** Creates a struct from its optional declared name. */
   public constructor(private nameValue?: string) {}
@@ -45,6 +47,16 @@ export class WdlStruct {
   /** Sets the declared struct name. */
   public setName(name: string | undefined): void {
     this.nameValue = name;
+  }
+  /** Returns the source range of this struct in the document, if set. */
+  public getSourceRange(): WdlSourceRange | undefined {
+    return this.sourceRangeValue;
+  }
+  /** Sets the source range of this struct. */
+  public setSourceRange(
+    range: WdlSourceRange | undefined,
+  ): void {
+    this.sourceRangeValue = range;
   }
   /** Returns the ordered struct elements, usually members and metadata sections. */
   public elements(): WdlStructElement[] {

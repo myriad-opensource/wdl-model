@@ -1,6 +1,7 @@
 package com.myriad.wdl.model.statements;
 
 import com.myriad.wdl.model.base.WdlKeyValue.WdlStringKeyValue;
+import com.myriad.wdl.model.base.WdlSourceRange;
 import com.myriad.wdl.model.definitions.WdlWorkflow.WdlWorkflowElement;
 import com.myriad.wdl.model.expressions.WdlExpression;
 import java.util.ArrayDeque;
@@ -16,6 +17,7 @@ import lombok.Setter;
 public final class WdlCall implements WdlStatement, WdlWorkflowElement {
   private final ArrayDeque<String> targetPath = new ArrayDeque<>();
   @Getter @Setter private String alias;
+  @Getter @Setter private WdlSourceRange sourceRange;
   private final ArrayDeque<WdlCallInput> inputs = new ArrayDeque<>();
   private final ArrayDeque<String> afterCallDependencies = new ArrayDeque<>();
   @Getter @Setter private boolean legacyInputColonUsed;

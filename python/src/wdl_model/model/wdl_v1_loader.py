@@ -18,7 +18,7 @@ from wdl_model.grammar.v1.WdlV1Lexer import WdlV1Lexer
 from wdl_model.grammar.v1.WdlV1Parser import WdlV1Parser
 from wdl_model.grammar.v1.WdlV1ParserVisitor import WdlV1ParserVisitor
 
-from .base import WdlNode
+from .base import WdlNode, WdlSourceRange
 from .definitions import (
     WdlEnum,
     WdlEnumChoice,
@@ -368,6 +368,16 @@ class WdlV1Loader(WdlV1ParserVisitor):
             folded = WdlBinaryOperation(folded, operator, expressions[idx + 1])
         return folded
 
+    @staticmethod
+    def _range_of(ctx: Any) -> WdlSourceRange | None:
+        """Build a WdlSourceRange from an ANTLR parser rule context's start/stop tokens."""
+        start = getattr(ctx, "start", None)
+        if start is None:
+            return None
+        stop = getattr(ctx, "stop", None) or start
+        end_col = stop.column + len(stop.text or "")
+        return WdlSourceRange(start.line, start.column, stop.line, end_col)
+
     # ------------------------------------------------------------------
     # Document & version
     # ------------------------------------------------------------------
@@ -398,6 +408,7 @@ class WdlV1Loader(WdlV1ParserVisitor):
             if ids:
                 imp.alias = ids[0]
         imp.source = self._pop_with_type(WdlStringLiteral)
+        imp.source_range = self._range_of(ctx)
         self.stack.pop()
         self._peek_with_type(WdlDocument).elements().append(imp)
         return None
@@ -407,6 +418,7 @@ class WdlV1Loader(WdlV1ParserVisitor):
         self.stack.append(imp)
         self.visitChildren(ctx)
         imp.source = self._pop_with_type(WdlStringLiteral)
+        imp.source_range = self._range_of(ctx)
         self.stack.pop()
         self._peek_with_type(WdlDocument).elements().append(imp)
         return None
@@ -416,6 +428,7 @@ class WdlV1Loader(WdlV1ParserVisitor):
         self.stack.append(imp)
         self.visitChildren(ctx)
         imp.source = self._pop_with_type(WdlStringLiteral)
+        imp.source_range = self._range_of(ctx)
         self.stack.pop()
         self._peek_with_type(WdlDocument).elements().append(imp)
         return None
@@ -482,6 +495,7 @@ class WdlV1Loader(WdlV1ParserVisitor):
         self.visitChildren(ctx)
         if ids:
             struct.name = ids[0]
+        struct.source_range = self._range_of(ctx)
         self.stack.pop()
         self._peek_with_type(WdlDocument).elements().append(struct)
         return None
@@ -524,6 +538,7 @@ class WdlV1Loader(WdlV1ParserVisitor):
         ids = self._strict_identifier_texts(ctx)
         if ids:
             enum_def.name = ids[0]
+        enum_def.source_range = self._range_of(ctx)
         self._pop_with_type(WdlEnum)
         self._peek_with_type(WdlDocument).elements().append(enum_def)
         return None
@@ -552,6 +567,7 @@ class WdlV1Loader(WdlV1ParserVisitor):
             decl.name = ids[0]
         decl.type = self._pop_with_type(WdlType)
         decl.environmentVariable = self._maybe_token(ctx, "KEYWORD_ENV") is not None
+        decl.source_range = self._range_of(ctx)
         return None
 
     def visitBoundDeclaration(self, ctx: Any) -> Any:
@@ -564,6 +580,7 @@ class WdlV1Loader(WdlV1ParserVisitor):
             decl.name = ids[0]
         decl.type = self._pop_with_type(WdlType)
         decl.environmentVariable = self._maybe_token(ctx, "KEYWORD_ENV") is not None
+        decl.source_range = self._range_of(ctx)
         return None
 
     def visitInputSection(self, ctx: Any) -> Any:
@@ -589,6 +606,7 @@ class WdlV1Loader(WdlV1ParserVisitor):
         ids = self._strict_identifier_texts(ctx)
         if ids:
             task.name = ids[0]
+        task.source_range = self._range_of(ctx)
         self._pop_with_type(WdlTask)
         self._peek_with_type(WdlDocument).elements().append(task)
         return None
@@ -846,6 +864,7 @@ class WdlV1Loader(WdlV1ParserVisitor):
         workflow = WdlWorkflow(ids[0] if ids else None)
         self.stack.append(workflow)
         self.visitChildren(ctx)
+        workflow.source_range = self._range_of(ctx)
         self._pop_with_type(WdlWorkflow)
         self._peek_with_type(WdlDocument).elements().append(workflow)
         return None
@@ -878,6 +897,7 @@ class WdlV1Loader(WdlV1ParserVisitor):
 
     def visitCallStatement(self, ctx: Any) -> Any:
         call_stmt = WdlCall()
+        call_stmt.source_range = self._range_of(ctx)
         self.stack.append(call_stmt)
         return self.visitChildren(ctx)
 
@@ -931,6 +951,7 @@ class WdlV1Loader(WdlV1ParserVisitor):
         for _ in getattr(ctx, "workflowStatement", lambda: [])():
             cond_stmt.thenStatements().appendleft(self._pop_with_type(WdlStatement))
         cond_stmt.condition = self._pop_with_type(WdlExpression)
+        cond_stmt.source_range = self._range_of(ctx)
         return None
 
     def visitConditionalElseIfClause(self, ctx: Any) -> Any:
@@ -962,6 +983,7 @@ class WdlV1Loader(WdlV1ParserVisitor):
         self.stack.append(scatter)
         self.visitChildren(ctx)
         scatter.collection = self._pop_with_type(WdlExpression)
+        scatter.source_range = self._range_of(ctx)
         return None
 
     def visitScatterBody(self, ctx: Any) -> Any:

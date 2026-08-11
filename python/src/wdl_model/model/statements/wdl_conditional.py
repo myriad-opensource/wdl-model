@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass, field
 
-from wdl_model.model.base import WdlNode
+from wdl_model.model.base import WdlNode, WdlSourceRange
 from wdl_model.model.definitions import WdlWorkflowElement
 from wdl_model.model.expressions import WdlExpression
 

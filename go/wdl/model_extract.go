@@ -44,34 +44,42 @@ func extractModelFromDocument(root grammar.IDocumentContext) extractedModel {
 func declarationFromElement(element grammar.IDocumentElementContext) (Declaration, bool) {
 	if task := element.TaskDefinition(); task != nil {
 		return Declaration{
-			Kind:   DeclarationTask,
-			Name:   strictIdentifierText(task.StrictIdentifier()),
-			Line:   startLine(task),
-			Column: startColumn(task),
+			Kind:      DeclarationTask,
+			Name:      strictIdentifierText(task.StrictIdentifier()),
+			Line:      startLine(task),
+			Column:    startColumn(task),
+			EndLine:   endLine(task),
+			EndColumn: endColumn(task),
 		}, true
 	}
 	if workflow := element.WorkflowDefinition(); workflow != nil {
 		return Declaration{
-			Kind:   DeclarationWorkflow,
-			Name:   strictIdentifierText(workflow.StrictIdentifier()),
-			Line:   startLine(workflow),
-			Column: startColumn(workflow),
+			Kind:      DeclarationWorkflow,
+			Name:      strictIdentifierText(workflow.StrictIdentifier()),
+			Line:      startLine(workflow),
+			Column:    startColumn(workflow),
+			EndLine:   endLine(workflow),
+			EndColumn: endColumn(workflow),
 		}, true
 	}
 	if structDef := element.StructDefinition(); structDef != nil {
 		return Declaration{
-			Kind:   DeclarationStruct,
-			Name:   strictIdentifierText(structDef.StrictIdentifier()),
-			Line:   startLine(structDef),
-			Column: startColumn(structDef),
+			Kind:      DeclarationStruct,
+			Name:      strictIdentifierText(structDef.StrictIdentifier()),
+			Line:      startLine(structDef),
+			Column:    startColumn(structDef),
+			EndLine:   endLine(structDef),
+			EndColumn: endColumn(structDef),
 		}, true
 	}
 	if enumDef := element.EnumDefinition(); enumDef != nil {
 		return Declaration{
-			Kind:   DeclarationEnum,
-			Name:   strictIdentifierText(enumDef.StrictIdentifier()),
-			Line:   startLine(enumDef),
-			Column: startColumn(enumDef),
+			Kind:      DeclarationEnum,
+			Name:      strictIdentifierText(enumDef.StrictIdentifier()),
+			Line:      startLine(enumDef),
+			Column:    startColumn(enumDef),
+			EndLine:   endLine(enumDef),
+			EndColumn: endColumn(enumDef),
 		}, true
 	}
 	return Declaration{}, false
@@ -83,7 +91,13 @@ func importFromElement(element grammar.IDocumentElementContext) (ImportRecord, b
 		return ImportRecord{}, false
 	}
 
-	record := ImportRecord{Line: startLine(stmt), Column: startColumn(stmt), Aliases: []ImportMember{}}
+	record := ImportRecord{
+		Line:      startLine(stmt),
+		Column:    startColumn(stmt),
+		EndLine:   endLine(stmt),
+		EndColumn: endColumn(stmt),
+		Aliases:   []ImportMember{},
+	}
 	switch v := stmt.(type) {
 	case *grammar.ImportStatementStandardContext:
 		record.RawLocation = importURILiteralText(v.ImportUriLiteral())
@@ -172,4 +186,19 @@ func startColumn(ctx antlr.ParserRuleContext) int {
 		return 0
 	}
 	return ctx.GetStart().GetColumn()
+}
+
+func endLine(ctx antlr.ParserRuleContext) int {
+	if ctx == nil || ctx.GetStop() == nil {
+		return startLine(ctx)
+	}
+	return ctx.GetStop().GetLine()
+}
+
+func endColumn(ctx antlr.ParserRuleContext) int {
+	if ctx == nil || ctx.GetStop() == nil {
+		return startColumn(ctx)
+	}
+	stop := ctx.GetStop()
+	return stop.GetColumn() + len(stop.GetText())
 }

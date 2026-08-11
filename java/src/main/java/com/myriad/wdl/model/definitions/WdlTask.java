@@ -2,6 +2,7 @@ package com.myriad.wdl.model.definitions;
 
 import com.myriad.wdl.model.WdlDocument.WdlDocumentElement;
 import com.myriad.wdl.model.base.WdlNode;
+import com.myriad.wdl.model.base.WdlSourceRange;
 import java.util.ArrayDeque;
 import lombok.Getter;
 import lombok.Setter;
@@ -19,6 +20,7 @@ public final class WdlTask implements WdlDocumentElement {
   public interface WdlTaskElement extends WdlNode {}
 
   @Getter @Setter private String name;
+  @Getter @Setter private WdlSourceRange sourceRange;
   private final ArrayDeque<WdlTaskElement> elements = new ArrayDeque<>();
 
   public WdlTask() {}

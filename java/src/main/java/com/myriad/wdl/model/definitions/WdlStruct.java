@@ -2,6 +2,7 @@ package com.myriad.wdl.model.definitions;
 
 import com.myriad.wdl.model.WdlDocument.WdlDocumentElement;
 import com.myriad.wdl.model.base.WdlNode;
+import com.myriad.wdl.model.base.WdlSourceRange;
 import com.myriad.wdl.model.types.WdlType;
 import java.util.ArrayDeque;
 import java.util.Objects;
@@ -21,6 +22,7 @@ public final class WdlStruct implements WdlDocumentElement {
   public interface WdlStructElement extends WdlNode {}
 
   @Getter @Setter private String name;
+  @Getter @Setter private WdlSourceRange sourceRange;
   private final ArrayDeque<WdlStructElement> elements = new ArrayDeque<>();
 
   public WdlStruct() {}

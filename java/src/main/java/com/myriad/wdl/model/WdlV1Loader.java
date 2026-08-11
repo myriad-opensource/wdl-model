@@ -1,6 +1,7 @@
 package com.myriad.wdl.model;
 
 import com.myriad.wdl.model.base.WdlNode;
+import com.myriad.wdl.model.base.WdlSourceRange;
 import com.myriad.wdl.model.definitions.WdlEnum;
 import com.myriad.wdl.model.definitions.WdlEnum.WdlEnumChoice;
 import com.myriad.wdl.model.definitions.WdlStruct;
@@ -536,6 +537,18 @@ public class WdlV1Loader extends WdlV1ParserBaseVisitor<Void> {
     return folded;
   }
 
+  /** Builds a source range from ANTLR start/stop token positions (1-based line, 0-based col). */
+  private static WdlSourceRange rangeOf(ParserRuleContext ctx) {
+    if (ctx == null || ctx.start == null) return null;
+    int startLine = ctx.start.getLine();
+    int startCol = ctx.start.getCharPositionInLine();
+    int endLine = ctx.stop != null ? ctx.stop.getLine() : startLine;
+    int endCol = ctx.stop != null
+        ? ctx.stop.getCharPositionInLine() + ctx.stop.getText().length()
+        : startCol;
+    return new WdlSourceRange(startLine, startCol, endLine, endCol);
+  }
+
   // =========================================================================
   // Document & Version
   // =========================================================================
@@ -571,6 +584,7 @@ public class WdlV1Loader extends WdlV1ParserBaseVisitor<Void> {
       imp.setAlias(ctx.strictIdentifier().getText());
     }
     imp.setSource(popWithType(WdlStringLiteral.class));
+    imp.setSourceRange(rangeOf(ctx));
     stack.pop();
     peekWithType(WdlDocument.class).elements().add(imp);
     return null;
@@ -582,6 +596,7 @@ public class WdlV1Loader extends WdlV1ParserBaseVisitor<Void> {
     stack.push(imp);
     super.visitImportStatementStar(ctx);
     imp.setSource(popWithType(WdlStringLiteral.class));
+    imp.setSourceRange(rangeOf(ctx));
     stack.pop();
     peekWithType(WdlDocument.class).elements().add(imp);
     return null;
@@ -593,6 +608,7 @@ public class WdlV1Loader extends WdlV1ParserBaseVisitor<Void> {
     stack.push(imp);
     super.visitImportStatementMembers(ctx);
     imp.setSource(popWithType(WdlStringLiteral.class));
+    imp.setSourceRange(rangeOf(ctx));
     stack.pop();
     peekWithType(WdlDocument.class).elements().add(imp);
     return null;
@@ -667,6 +683,7 @@ public class WdlV1Loader extends WdlV1ParserBaseVisitor<Void> {
     stack.push(struct);
     super.visitStructDefinition(ctx);
     struct.setName(ctx.strictIdentifier().getText());
+    struct.setSourceRange(rangeOf(ctx));
     stack.pop();
     peekWithType(WdlDocument.class).elements().add(struct);
     return null;
@@ -718,6 +735,7 @@ public class WdlV1Loader extends WdlV1ParserBaseVisitor<Void> {
       enumDef.setValueType(popWithType(WdlType.class));
     }
     enumDef.setName(ctx.strictIdentifier().getText());
+    enumDef.setSourceRange(rangeOf(ctx));
     popWithType(WdlEnum.class);
     peekWithType(WdlDocument.class).elements().add(enumDef);
     return null;
@@ -747,6 +765,7 @@ public class WdlV1Loader extends WdlV1ParserBaseVisitor<Void> {
     decl.setName(ctx.strictIdentifier().getText());
     decl.setType(popWithType(WdlType.class));
     decl.setEnvironmentVariable(ctx.KEYWORD_ENV() != null);
+    decl.setSourceRange(rangeOf(ctx));
     return null;
   }
 
@@ -759,6 +778,7 @@ public class WdlV1Loader extends WdlV1ParserBaseVisitor<Void> {
     decl.setName(ctx.strictIdentifier().getText());
     decl.setType(popWithType(WdlType.class));
     decl.setEnvironmentVariable(ctx.KEYWORD_ENV() != null);
+    decl.setSourceRange(rangeOf(ctx));
     return null;
   }
 
@@ -798,6 +818,7 @@ public class WdlV1Loader extends WdlV1ParserBaseVisitor<Void> {
     stack.push(task);
     super.visitTaskDefinition(ctx);
     task.setName(ctx.strictIdentifier().getText());
+    task.setSourceRange(rangeOf(ctx));
     popWithType(WdlTask.class);
     peekWithType(WdlDocument.class).elements().addLast(task);
     return null;
@@ -1124,6 +1145,7 @@ public class WdlV1Loader extends WdlV1ParserBaseVisitor<Void> {
     WdlWorkflow workflow = new WdlWorkflow(ctx.strictIdentifier().getText());
     stack.push(workflow);
     super.visitWorkflowDefinition(ctx);
+    workflow.setSourceRange(rangeOf(ctx));
     popWithType(WdlWorkflow.class);
     peekWithType(WdlDocument.class).elements().add(workflow);
     return null;
@@ -1165,6 +1187,7 @@ public class WdlV1Loader extends WdlV1ParserBaseVisitor<Void> {
   @Override
   public Void visitCallStatement(CallStatementContext ctx) {
     WdlCall callStmt = new WdlCall();
+    callStmt.setSourceRange(rangeOf(ctx));
     stack.push(callStmt);
     return super.visitCallStatement(ctx);
   }
@@ -1230,6 +1253,7 @@ public class WdlV1Loader extends WdlV1ParserBaseVisitor<Void> {
       condStmt.thenStatements().push(popWithType(WdlStatement.class));
     }
     condStmt.setCondition(popWithType(WdlExpression.class));
+    condStmt.setSourceRange(rangeOf(ctx));
     return null;
   }
 
@@ -1268,6 +1292,7 @@ public class WdlV1Loader extends WdlV1ParserBaseVisitor<Void> {
   @Override
   public Void visitScatterStatement(ScatterStatementContext ctx) {
     WdlScatter scatterStmt = new WdlScatter(ctx.strictIdentifier().getText());
+    scatterStmt.setSourceRange(rangeOf(ctx));
     stack.push(scatterStmt);
     super.visitScatterStatement(ctx);
     scatterStmt.setCollection(popWithType(WdlExpression.class));

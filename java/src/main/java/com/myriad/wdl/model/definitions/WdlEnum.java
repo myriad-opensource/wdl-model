@@ -2,6 +2,7 @@ package com.myriad.wdl.model.definitions;
 
 import com.myriad.wdl.model.WdlDocument.WdlDocumentElement;
 import com.myriad.wdl.model.base.WdlKeyValue.WdlStringKeyValue;
+import com.myriad.wdl.model.base.WdlSourceRange;
 import com.myriad.wdl.model.expressions.WdlExpression;
 import com.myriad.wdl.model.types.WdlType;
 import java.util.ArrayDeque;
@@ -19,6 +20,7 @@ import lombok.Setter;
 public final class WdlEnum implements WdlDocumentElement {
   @Getter @Setter private String name;
   @Getter @Setter private WdlType valueType;
+  @Getter @Setter private WdlSourceRange sourceRange;
   private final ArrayDeque<WdlEnumChoice> elements = new ArrayDeque<>();
 
   public WdlEnum() {}

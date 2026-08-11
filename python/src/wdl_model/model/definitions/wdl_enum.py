@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass, field
 
-from wdl_model.model.base import WdlStringKeyValue
+from wdl_model.model.base import WdlSourceRange, WdlStringKeyValue
 from wdl_model.model.expressions import WdlExpression
 from wdl_model.model.types import WdlType
 
@@ -23,6 +23,7 @@ class WdlEnum:
 
     name: str | None = None
     valueType: WdlType | None = None
+    source_range: WdlSourceRange | None = None
     _elements: deque[WdlEnumChoice] = field(default_factory=deque)
 
     def elements(self) -> deque[WdlEnumChoice]:

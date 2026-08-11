@@ -1,10 +1,12 @@
 /** Import statement nodes for the TypeScript WDL model. */
+import type { WdlSourceRange } from '../base/wdl-source-range.js';
 import type { WdlStringLiteral } from '../expressions/wdl-string-literal.js';
 
 /** Base class for the three WDL import forms. */
 export abstract class WdlImport {
   private importIdentifierValue: string | undefined;
   private sourceTextValue: string | undefined;
+  private sourceRangeValue: WdlSourceRange | undefined;
 
   /** Creates an import from its source literal. */
   public constructor(protected sourceValue?: WdlStringLiteral) {}
@@ -35,6 +37,16 @@ export abstract class WdlImport {
   /** Sets the raw source text loaded for this import. */
   public setSourceText(sourceText: string | undefined): void {
     this.sourceTextValue = sourceText;
+  }
+  /** Returns the source range of this import statement, if set. */
+  public getSourceRange(): WdlSourceRange | undefined {
+    return this.sourceRangeValue;
+  }
+  /** Sets the source range of this import statement. */
+  public setSourceRange(
+    range: WdlSourceRange | undefined,
+  ): void {
+    this.sourceRangeValue = range;
   }
 }
 

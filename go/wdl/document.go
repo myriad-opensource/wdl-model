@@ -18,10 +18,14 @@ type Declaration struct {
 	Kind DeclarationKind
 	// Name is the declaration identifier.
 	Name string
-	// Line is the 1-based source line.
+	// Line is the 1-based source line of the first token.
 	Line int
-	// Column is the 0-based source column.
+	// Column is the 0-based source column of the first token.
 	Column int
+	// EndLine is the 1-based source line of the last token.
+	EndLine int
+	// EndColumn is the 0-based exclusive-end column of the last token.
+	EndColumn int
 }
 
 // ImportMember represents a selected import member and optional alias.
@@ -36,6 +40,10 @@ type ImportRecord struct {
 	Line int
 	// Column is the 0-based source column of the import statement.
 	Column int
+	// EndLine is the 1-based source line of the last token of the import statement.
+	EndLine int
+	// EndColumn is the 0-based exclusive-end column of the last token.
+	EndColumn int
 	// RawLocation is the location text as written in WDL source.
 	RawLocation string
 	// NamespaceAlias is the alias used by standard imports.

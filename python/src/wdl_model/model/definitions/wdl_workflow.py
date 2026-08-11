@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass, field
 
-from wdl_model.model.base import WdlNode
+from wdl_model.model.base import WdlNode, WdlSourceRange
 
 
 class WdlWorkflowElement(WdlNode):
@@ -22,6 +22,7 @@ class WdlWorkflow:
     """
 
     name: str | None = None
+    source_range: WdlSourceRange | None = None
     _elements: deque[WdlWorkflowElement] = field(default_factory=deque)
 
     def getElements(self) -> deque[WdlWorkflowElement]:
