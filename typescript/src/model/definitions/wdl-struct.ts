@@ -53,9 +53,7 @@ export class WdlStruct {
     return this.sourceRangeValue;
   }
   /** Sets the source range of this struct. */
-  public setSourceRange(
-    range: WdlSourceRange | undefined,
-  ): void {
+  public setSourceRange(range: WdlSourceRange | undefined): void {
     this.sourceRangeValue = range;
   }
   /** Returns the ordered struct elements, usually members and metadata sections. */

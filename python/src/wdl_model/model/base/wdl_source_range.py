@@ -19,4 +19,6 @@ class WdlSourceRange:
     end_column: int
 
     def __str__(self) -> str:
-        return f"{self.start_line}:{self.start_column}-{self.end_line}:{self.end_column}"
+        return (
+            f"{self.start_line}:{self.start_column}-{self.end_line}:{self.end_column}"
+        )

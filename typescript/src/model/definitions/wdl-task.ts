@@ -26,9 +26,7 @@ export class WdlTask {
     return this.sourceRangeValue;
   }
   /** Sets the source range of this task. */
-  public setSourceRange(
-    range: WdlSourceRange | undefined,
-  ): void {
+  public setSourceRange(range: WdlSourceRange | undefined): void {
     this.sourceRangeValue = range;
   }
   /** Returns the ordered task body elements. */

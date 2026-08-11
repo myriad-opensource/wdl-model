@@ -26,7 +26,7 @@ class WdlImportResolverTest {
     when(httpClient.executeOpen(any(), any(), any())).thenReturn(response);
 
     WdlImportResolverApacheHttp resolver =
-      new WdlImportResolverApacheHttp(httpClient, Timeout.ofSeconds(2), Timeout.ofSeconds(2));
+        new WdlImportResolverApacheHttp(httpClient, Timeout.ofSeconds(2), Timeout.ofSeconds(2));
 
     String text = resolver.resolveImport(null, "http://example.com/workflow.wdl");
     assertEquals("version 1.3\n", text);
@@ -41,7 +41,7 @@ class WdlImportResolverTest {
     when(httpClient.executeOpen(any(), any(), any())).thenReturn(response);
 
     WdlImportResolverApacheHttp resolver =
-      new WdlImportResolverApacheHttp(httpClient, Timeout.ofSeconds(2), Timeout.ofSeconds(2));
+        new WdlImportResolverApacheHttp(httpClient, Timeout.ofSeconds(2), Timeout.ofSeconds(2));
 
     String text = resolver.resolveImport(null, "https://example.com/workflow.wdl");
     assertEquals("version 1.3\n", text);
@@ -55,7 +55,7 @@ class WdlImportResolverTest {
     when(httpClient.executeOpen(any(), any(), any())).thenReturn(response);
 
     WdlImportResolverApacheHttp resolver =
-      new WdlImportResolverApacheHttp(httpClient, Timeout.ofSeconds(2), Timeout.ofSeconds(2));
+        new WdlImportResolverApacheHttp(httpClient, Timeout.ofSeconds(2), Timeout.ofSeconds(2));
 
     assertThrows(
         WdlImportException.class,

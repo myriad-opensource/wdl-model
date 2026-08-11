@@ -29,6 +29,7 @@ class WdlConditional(WdlStatement, WdlWorkflowElement):
     """Conditional statement node with ``if``, ``else if``, and ``else`` branches."""
 
     condition: WdlExpression | None = None
+    source_range: WdlSourceRange | None = None
     _thenStatements: deque[WdlStatement] = field(default_factory=deque)
     _elseIfs: deque[WdlConditionalElseIf] = field(default_factory=deque)
     _elseStatements: deque[WdlStatement] = field(default_factory=deque)

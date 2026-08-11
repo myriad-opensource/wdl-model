@@ -21,7 +21,6 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Queue;
 import java.util.Set;
 
@@ -258,7 +257,8 @@ public final class WdlWorkflowDag {
     if (expr instanceof com.myriad.wdl.model.expressions.WdlUnaryOperation) {
       collectExpressionCallDeps(
           ((com.myriad.wdl.model.expressions.WdlUnaryOperation) expr).getOperand(),
-          knownAliases, out);
+          knownAliases,
+          out);
       return;
     }
 
@@ -290,11 +290,13 @@ public final class WdlWorkflowDag {
     if (expr instanceof com.myriad.wdl.model.expressions.WdlStringLiteral) {
       for (com.myriad.wdl.model.expressions.WdlStringLiteral.WdlStringComponent component :
           ((com.myriad.wdl.model.expressions.WdlStringLiteral) expr).components()) {
-        if (component instanceof com.myriad.wdl.model.expressions.WdlStringLiteral.WdlStringPlaceholder) {
+        if (component
+            instanceof com.myriad.wdl.model.expressions.WdlStringLiteral.WdlStringPlaceholder) {
           collectExpressionCallDeps(
               ((com.myriad.wdl.model.expressions.WdlStringLiteral.WdlStringPlaceholder) component)
                   .getExpression(),
-              knownAliases, out);
+              knownAliases,
+              out);
         }
       }
     }

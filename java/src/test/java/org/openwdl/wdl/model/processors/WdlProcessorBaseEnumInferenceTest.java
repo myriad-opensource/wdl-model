@@ -19,7 +19,8 @@ import org.junit.jupiter.api.Test;
 
 class WdlProcessorBaseEnumInferenceTest {
 
-  private static final class ProbeProcessor extends com.myriad.wdl.model.processors.WdlProcessorBase {
+  private static final class ProbeProcessor
+      extends com.myriad.wdl.model.processors.WdlProcessorBase {
     Optional<WdlType> infer(WdlEnum e) {
       return inferEnumValueType(e);
     }
@@ -38,7 +39,8 @@ class WdlProcessorBaseEnumInferenceTest {
     assertTrue(inferredDirect.isPresent());
     assertTrue(inferred.get() instanceof WdlPrimitiveType);
     assertEquals(WdlPrimitiveType.Type.STRING, ((WdlPrimitiveType) inferred.get()).primitiveType());
-    assertEquals(WdlPrimitiveType.Type.STRING, ((WdlPrimitiveType) inferredDirect.get()).primitiveType());
+    assertEquals(
+        WdlPrimitiveType.Type.STRING, ((WdlPrimitiveType) inferredDirect.get()).primitiveType());
   }
 
   @Test
@@ -54,7 +56,8 @@ class WdlProcessorBaseEnumInferenceTest {
     assertTrue(inferredDirect.isPresent());
     assertTrue(inferred.get() instanceof WdlPrimitiveType);
     assertEquals(WdlPrimitiveType.Type.FLOAT, ((WdlPrimitiveType) inferred.get()).primitiveType());
-    assertEquals(WdlPrimitiveType.Type.FLOAT, ((WdlPrimitiveType) inferredDirect.get()).primitiveType());
+    assertEquals(
+        WdlPrimitiveType.Type.FLOAT, ((WdlPrimitiveType) inferredDirect.get()).primitiveType());
   }
 
   @Test
@@ -76,8 +79,13 @@ class WdlProcessorBaseEnumInferenceTest {
   @Test
   void supportsLocalStructAndEnumIntrospectionHelpers() {
     WdlStruct struct = new WdlStruct("Person");
-    struct.elements().add(new WdlStructMember(new WdlPrimitiveType(WdlPrimitiveType.Type.STRING, false), "name"));
-    struct.elements().add(new WdlStructMember(new WdlPrimitiveType(WdlPrimitiveType.Type.INT, false), "age"));
+    struct
+        .elements()
+        .add(
+            new WdlStructMember(new WdlPrimitiveType(WdlPrimitiveType.Type.STRING, false), "name"));
+    struct
+        .elements()
+        .add(new WdlStructMember(new WdlPrimitiveType(WdlPrimitiveType.Type.INT, false), "age"));
 
     WdlEnum en = new WdlEnum("Status");
     en.elements().add(new WdlEnumChoice("NEW", null));

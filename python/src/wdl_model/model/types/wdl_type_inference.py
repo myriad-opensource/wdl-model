@@ -105,7 +105,9 @@ def infer_literal_expression_type(expression: WdlExpression | None) -> WdlType |
     return None
 
 
-def _merge_coercible_types(current_type: WdlType | None, next_type: WdlType | None) -> WdlType | None:
+def _merge_coercible_types(
+    current_type: WdlType | None, next_type: WdlType | None
+) -> WdlType | None:
     if next_type is None:
         return current_type
     if current_type is None:
@@ -128,7 +130,9 @@ def _same_type_shape(left: WdlType | None, right: WdlType | None) -> bool:
         return False
     if isinstance(left, WdlPrimitiveType) and isinstance(right, WdlPrimitiveType):
         return left.primitiveType() == right.primitiveType()
-    if isinstance(left, WdlTypeReferenceType) and isinstance(right, WdlTypeReferenceType):
+    if isinstance(left, WdlTypeReferenceType) and isinstance(
+        right, WdlTypeReferenceType
+    ):
         return left.referenceName() == right.referenceName()
     if isinstance(left, WdlArrayType) and isinstance(right, WdlArrayType):
         return _same_type_shape(left.memberType(), right.memberType())

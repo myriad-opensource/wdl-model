@@ -45,8 +45,7 @@ export function inferLiteralExpressionType(expr: WdlExpression | undefined): Wdl
   if (!expr) return undefined;
   if (expr instanceof WdlIntLiteral) return new WdlPrimitiveType(WdlPrimitiveType.Type.INT);
   if (expr instanceof WdlFloatLiteral) return new WdlPrimitiveType(WdlPrimitiveType.Type.FLOAT);
-  if (expr instanceof WdlBooleanLiteral)
-    return new WdlPrimitiveType(WdlPrimitiveType.Type.BOOLEAN);
+  if (expr instanceof WdlBooleanLiteral) return new WdlPrimitiveType(WdlPrimitiveType.Type.BOOLEAN);
   if (expr instanceof WdlStringLiteral) return new WdlPrimitiveType(WdlPrimitiveType.Type.STRING);
   if (expr instanceof WdlNullLiteral) return undefined;
   if (expr instanceof WdlVariable && expr.getName() === 'None') return undefined;

@@ -738,7 +738,8 @@ public class WdlExpressionValidator extends WdlExpressionProcessorBase {
     }
 
     if (isStructTypeReference(expected) && isStructTypeReference(actual)) {
-      return areStructReferencesCompatible(structName(expected), structName(actual), new HashSet<>());
+      return areStructReferencesCompatible(
+          structName(expected), structName(actual), new HashSet<>());
     }
 
     if (expected.componentType() != actual.componentType()) {
@@ -887,7 +888,9 @@ public class WdlExpressionValidator extends WdlExpressionProcessorBase {
   }
 
   private String structName(WdlType type) {
-    return type instanceof WdlTypeReferenceType ? ((WdlTypeReferenceType) type).referenceName() : null;
+    return type instanceof WdlTypeReferenceType
+        ? ((WdlTypeReferenceType) type).referenceName()
+        : null;
   }
 
   protected boolean isPrimitive(WdlType type, WdlPrimitiveType.Type primitiveType) {

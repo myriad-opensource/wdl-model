@@ -543,9 +543,10 @@ public class WdlV1Loader extends WdlV1ParserBaseVisitor<Void> {
     int startLine = ctx.start.getLine();
     int startCol = ctx.start.getCharPositionInLine();
     int endLine = ctx.stop != null ? ctx.stop.getLine() : startLine;
-    int endCol = ctx.stop != null
-        ? ctx.stop.getCharPositionInLine() + ctx.stop.getText().length()
-        : startCol;
+    int endCol =
+        ctx.stop != null
+            ? ctx.stop.getCharPositionInLine() + ctx.stop.getText().length()
+            : startCol;
     return new WdlSourceRange(startLine, startCol, endLine, endCol);
   }
 

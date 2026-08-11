@@ -50,12 +50,12 @@ describe('TypeScript type inference helpers', () => {
 
   it('supports local struct and enum introspection helpers', () => {
     const struct = new WdlStruct('Person');
-    struct.elements().push(
-      new WdlStructMember(new WdlPrimitiveType(WdlPrimitiveType.Type.STRING), 'name'),
-    );
-    struct.elements().push(
-      new WdlStructMember(new WdlPrimitiveType(WdlPrimitiveType.Type.INT), 'age'),
-    );
+    struct
+      .elements()
+      .push(new WdlStructMember(new WdlPrimitiveType(WdlPrimitiveType.Type.STRING), 'name'));
+    struct
+      .elements()
+      .push(new WdlStructMember(new WdlPrimitiveType(WdlPrimitiveType.Type.INT), 'age'));
 
     const en = new WdlEnum('Status');
     en.elements().push(new WdlEnumChoice('NEW'));

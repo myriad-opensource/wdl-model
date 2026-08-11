@@ -26,9 +26,7 @@ export class WdlWorkflow {
     return this.sourceRangeValue;
   }
   /** Sets the source range of this workflow. */
-  public setSourceRange(
-    range: WdlSourceRange | undefined,
-  ): void {
+  public setSourceRange(range: WdlSourceRange | undefined): void {
     this.sourceRangeValue = range;
   }
   /** Returns the ordered workflow body elements. */

@@ -48,9 +48,7 @@ export class WdlEnum {
     return this.sourceRangeValue;
   }
   /** Sets the source range of this enum. */
-  public setSourceRange(
-    range: WdlSourceRange | undefined,
-  ): void {
+  public setSourceRange(range: WdlSourceRange | undefined): void {
     this.sourceRangeValue = range;
   }
 

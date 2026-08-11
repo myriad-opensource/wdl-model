@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from wdl_model.model.definitions import WdlEnum, WdlEnumChoice, WdlStruct, WdlStructMember
+from wdl_model.model.definitions import (
+    WdlEnum,
+    WdlEnumChoice,
+    WdlStruct,
+    WdlStructMember,
+)
 from wdl_model.model.expressions import (
     WdlFloatLiteral,
     WdlFunction,

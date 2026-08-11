@@ -132,10 +132,7 @@ export class WdlImportResolverCache extends WdlImportResolverBase {
     return uris;
   }
 
-  private static resolveUri(
-    rawUri: string,
-    baseUri: string | undefined,
-  ): string | undefined {
+  private static resolveUri(rawUri: string, baseUri: string | undefined): string | undefined {
     try {
       // absolute URI — use as-is
       if (/^[a-zA-Z][a-zA-Z0-9+\-.]*:/.test(rawUri)) return rawUri;

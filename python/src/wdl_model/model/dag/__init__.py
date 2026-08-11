@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import dataclass, field
-from typing import Iterator
+from dataclasses import dataclass
 
 from wdl_model.model.definitions import WdlWorkflow
 from wdl_model.model.expressions import (
@@ -78,7 +77,9 @@ class WdlWorkflowDag:
                     node_deps.add(after)
             for call_input in node.call.inputs():
                 if call_input.getValue() is not None:
-                    _collect_expr_call_deps(call_input.getValue(), known_aliases, node_deps)
+                    _collect_expr_call_deps(
+                        call_input.getValue(), known_aliases, node_deps
+                    )
             deps[node.call_alias] = node_deps
 
         sorted_nodes, detected_cycles = _kahn_sort(nodes, deps)
@@ -108,6 +109,7 @@ class WdlWorkflowDag:
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
 
 def _effective_alias(call: WdlCall) -> str:
     if call.alias:

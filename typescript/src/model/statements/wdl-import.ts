@@ -43,9 +43,7 @@ export abstract class WdlImport {
     return this.sourceRangeValue;
   }
   /** Sets the source range of this import statement. */
-  public setSourceRange(
-    range: WdlSourceRange | undefined,
-  ): void {
+  public setSourceRange(range: WdlSourceRange | undefined): void {
     this.sourceRangeValue = range;
   }
 }

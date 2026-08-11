@@ -238,10 +238,9 @@ class WdlSemanticValidator(WdlProcessorBase, WdlFunctionProcessorBase):
             elif isinstance(element, WdlEnum):
                 if element.name is not None:
                     self._visible_type_names.add(element.name)
-                    self._enum_value_types[element.name] = (
-                        infer_enum_value_type(element)
-                        or WdlPrimitiveType(WdlPrimitiveTypeEnum.STRING)
-                    )
+                    self._enum_value_types[element.name] = infer_enum_value_type(
+                        element
+                    ) or WdlPrimitiveType(WdlPrimitiveTypeEnum.STRING)
                     self._enum_choice_names[element.name] = {
                         choice.getKey()
                         for choice in element.elements()
@@ -457,10 +456,9 @@ class WdlSemanticValidator(WdlProcessorBase, WdlFunctionProcessorBase):
                 f"{imported_document.getSourceLocation() or '<import>'}::enum::{enum.name}",
                 visible_type_origins,
             )
-            self._enum_value_types[local_name] = (
-                infer_enum_value_type(enum)
-                or WdlPrimitiveType(WdlPrimitiveTypeEnum.STRING)
-            )
+            self._enum_value_types[local_name] = infer_enum_value_type(
+                enum
+            ) or WdlPrimitiveType(WdlPrimitiveTypeEnum.STRING)
             self._enum_choice_names[local_name] = {
                 choice.getKey()
                 for choice in enum.elements()
@@ -1175,9 +1173,9 @@ class WdlSemanticValidator(WdlProcessorBase, WdlFunctionProcessorBase):
                 expected, WdlPrimitiveTypeEnum.FLOAT
             ) and self._is_primitive(actual, WdlPrimitiveTypeEnum.INT):
                 return True
-            if self._is_primitive(expected, WdlPrimitiveTypeEnum.FILE) and self._is_primitive(
-                actual, WdlPrimitiveTypeEnum.STRING
-            ):
+            if self._is_primitive(
+                expected, WdlPrimitiveTypeEnum.FILE
+            ) and self._is_primitive(actual, WdlPrimitiveTypeEnum.STRING):
                 return True
             if self._is_primitive(
                 expected, WdlPrimitiveTypeEnum.DIRECTORY
@@ -1191,16 +1189,16 @@ class WdlSemanticValidator(WdlProcessorBase, WdlFunctionProcessorBase):
                 actual, WdlPrimitiveTypeEnum.STRING
             ):
                 return True
-            if isinstance(expected, WdlMapType) and self._is_struct_type_reference(actual):
+            if isinstance(expected, WdlMapType) and self._is_struct_type_reference(
+                actual
+            ):
                 members = self._struct_member_types.get(
                     self._type_reference_name(actual), {}
                 )
                 if not members:
                     return False
                 for member_type in members.values():
-                    if not self._is_type_assignable(
-                        expected.valueType(), member_type
-                    ):
+                    if not self._is_type_assignable(expected.valueType(), member_type):
                         return False
                 return True
             return False
@@ -1240,23 +1238,27 @@ class WdlSemanticValidator(WdlProcessorBase, WdlFunctionProcessorBase):
             actual_name = actual.referenceName()
             if expected_name == actual_name:
                 return True
-            if self._is_struct_type_reference(expected) and self._is_struct_type_reference(
-                actual
-            ):
-                return self._are_struct_refs_compatible(expected_name, actual_name, set())
+            if self._is_struct_type_reference(
+                expected
+            ) and self._is_struct_type_reference(actual):
+                return self._are_struct_refs_compatible(
+                    expected_name, actual_name, set()
+                )
             return False
 
         return True
 
     def _is_enum_type_reference(self, t: WdlType | None) -> bool:
-        return isinstance(t, WdlTypeReferenceType) and self._type_reference_name(
-            t
-        ) in self._enum_value_types
+        return (
+            isinstance(t, WdlTypeReferenceType)
+            and self._type_reference_name(t) in self._enum_value_types
+        )
 
     def _is_struct_type_reference(self, t: WdlType | None) -> bool:
-        return isinstance(t, WdlTypeReferenceType) and self._type_reference_name(
-            t
-        ) in self._struct_member_types
+        return (
+            isinstance(t, WdlTypeReferenceType)
+            and self._type_reference_name(t) in self._struct_member_types
+        )
 
     def _type_reference_name(self, t: WdlType | None) -> str:
         if not isinstance(t, WdlTypeReferenceType):

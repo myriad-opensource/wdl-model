@@ -1534,9 +1534,7 @@ export class WdlV1Loader {
   }
 
   /** Builds a WdlSourceRange from an ANTLR rule context's start/stop token positions. */
-  private static rangeOf(
-    ctx: ParserRuleContext,
-  ): WdlSourceRange | undefined {
+  private static rangeOf(ctx: ParserRuleContext): WdlSourceRange | undefined {
     if (!ctx.start) return undefined;
     const stop = ctx.stop ?? ctx.start;
     return {

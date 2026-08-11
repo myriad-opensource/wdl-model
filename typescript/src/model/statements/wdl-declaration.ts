@@ -50,9 +50,7 @@ export class WdlDeclaration implements WdlStatement {
     return this.sourceRangeValue;
   }
   /** Sets the source range of this declaration. */
-  public setSourceRange(
-    range: WdlSourceRange | undefined,
-  ): void {
+  public setSourceRange(range: WdlSourceRange | undefined): void {
     this.sourceRangeValue = range;
   }
 }

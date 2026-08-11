@@ -22,9 +22,9 @@ class WdlTypeAssignabilityMatrixTest {
     return Stream.of(
         Arguments.of("optional_from_none_ok.wdl"),
         Arguments.of("array_nested_ok.wdl"),
-      Arguments.of("map_value_type_ok.wdl"),
-      Arguments.of("file_directory_from_string_ok.wdl"),
-      Arguments.of("struct_to_struct_coercion_ok.wdl"));
+        Arguments.of("map_value_type_ok.wdl"),
+        Arguments.of("file_directory_from_string_ok.wdl"),
+        Arguments.of("struct_to_struct_coercion_ok.wdl"));
   }
 
   static Stream<Arguments> assignabilityFailureCases() {
@@ -33,8 +33,8 @@ class WdlTypeAssignabilityMatrixTest {
         Arguments.of("array_member_type_fail.wdl"),
         Arguments.of("required_string_to_int_fail.wdl"),
         Arguments.of("array_string_to_int_fail.wdl"),
-          Arguments.of("map_value_type_fail.wdl"),
-          Arguments.of("struct_to_struct_incompatible_fail.wdl"));
+        Arguments.of("map_value_type_fail.wdl"),
+        Arguments.of("struct_to_struct_incompatible_fail.wdl"));
   }
 
   @ParameterizedTest(name = "assignability accepts {0}")

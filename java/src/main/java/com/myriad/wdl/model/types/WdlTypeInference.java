@@ -172,8 +172,7 @@ public final class WdlTypeInference {
             ((WdlArrayType) left).memberType(), ((WdlArrayType) right).memberType());
       case MAP:
         return sameTypeShape(((WdlMapType) left).keyType(), ((WdlMapType) right).keyType())
-            && sameTypeShape(
-                ((WdlMapType) left).valueType(), ((WdlMapType) right).valueType());
+            && sameTypeShape(((WdlMapType) left).valueType(), ((WdlMapType) right).valueType());
       case PAIR:
         return sameTypeShape(((WdlPairType) left).leftType(), ((WdlPairType) right).leftType())
             && sameTypeShape(((WdlPairType) left).rightType(), ((WdlPairType) right).rightType());

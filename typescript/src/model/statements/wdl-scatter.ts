@@ -40,9 +40,7 @@ export class WdlScatter implements WdlStatement, WdlWorkflowElement {
     return this.sourceRangeValue;
   }
   /** Sets the source range of this scatter. */
-  public setSourceRange(
-    range: WdlSourceRange | undefined,
-  ): void {
+  public setSourceRange(range: WdlSourceRange | undefined): void {
     this.sourceRangeValue = range;
   }
   /** Returns the broad statement family for this node. */
