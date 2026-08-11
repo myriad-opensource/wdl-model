@@ -6,6 +6,7 @@
 !package.go
 !WdlV1Lexer.g4
 !WdlV1Parser.g4
+!*.go
 
 # Finder metadata
 .DS_Store
