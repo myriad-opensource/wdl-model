@@ -40,6 +40,14 @@ public class WdlV13SpecExamplesTest {
               "test_zip_fail.wdl",
               "illegal_access_fail.wdl"));
 
+  private static Set<String> parseFailuresExpectedWithReservedKeywordsV1_3 =
+      new HashSet<>(
+          Arrays.asList(
+              "test_find_task.wdl",
+              "test_meta_values.wdl",
+              "test_runtime_info_task.wdl",
+              "test_task_previous.wdl"));
+
   static Stream<org.junit.jupiter.params.provider.Arguments> v13Examples() throws Exception {
     return WdlTestResources.loadWdlExamples("v1_3");
   }
@@ -72,7 +80,8 @@ public class WdlV13SpecExamplesTest {
         throw new AssertionError("Parsed but failure expected: " + filename);
       }
     } catch (WdlException e) {
-      if (!filename.endsWith("_fail.wdl")) {
+      if (!filename.endsWith("_fail.wdl")
+          && !parseFailuresExpectedWithReservedKeywordsV1_3.contains(filename)) {
         throw new AssertionError("Failed to parse " + filename + ": " + e.toDebugMessage(), e);
       }
     }

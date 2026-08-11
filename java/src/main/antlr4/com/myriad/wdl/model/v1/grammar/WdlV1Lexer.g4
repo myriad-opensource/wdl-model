@@ -1,1 +1,1 @@
-../../../../../../../../../../wdl-grammar/antrl4/v1/WdlV1Lexer.g4
+../../../../../../../../../../wdl-grammar/antlr4/v1/WdlV1Lexer.g4

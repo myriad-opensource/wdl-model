@@ -16,7 +16,7 @@ clean:
 	rm -rf .pytest_cache .ruff_cache dist build src/wdl_model/grammar/v1
 	find . -type d -name __pycache__ -prune -exec rm -rf {} +
 
-build: generate-grammar
+build: install generate-grammar
 
 test: build
 	poetry run pytest -q

@@ -958,92 +958,156 @@ export class WdlV1Loader {
     return this.buildLogicalOrExpression(ctx.logicalOrExpression());
   }
 
+  private static asArray<T>(value: T | T[] | undefined | null): T[] {
+    if (value === undefined || value === null) return [];
+    return Array.isArray(value) ? value : [value];
+  }
+
+  private static collectBinaryOperatorSymbols(ctx: ParserRuleContext): string[] {
+    const symbols: string[] = [];
+    for (let i = 1; i < ctx.getChildCount(); i += 2) {
+      const child = ctx.getChild(i);
+      if (child) symbols.push(child.getText());
+    }
+    return symbols;
+  }
+
+  private static foldBinaryOperations(
+    expressions: WdlExpression[],
+    operators: WdlBinaryOperator[],
+  ): WdlExpression {
+    let folded = expressions[0]!;
+    for (let i = 0; i < operators.length; i++) {
+      folded = new WdlBinaryOperation(folded, operators[i], expressions[i + 1]);
+    }
+    return folded;
+  }
+
+  private static firstOperand<T>(operands: T[], label: string): T {
+    if (operands.length === 0) {
+      throw new AssertionError(`Missing operand for ${label}`);
+    }
+    return operands[0]!;
+  }
+
   private static buildLogicalOrExpression(ctx: any): WdlExpression {
     if (ctx instanceof LogicalOrExprOperationContext) {
-      return new WdlBinaryOperation(
-        this.buildLogicalOrExpression(ctx.logicalOrExpression()),
-        WdlBinaryOperator.OR,
-        this.buildLogicalAndExpression(ctx.logicalAndExpression()),
-      );
+      const operands = this.asArray(ctx.logicalAndExpression());
+      if (operands.length > 1) {
+        const expressions = operands.map((operand) => this.buildLogicalAndExpression(operand));
+        const operators = new Array<WdlBinaryOperator>(operands.length - 1).fill(
+          WdlBinaryOperator.OR,
+        );
+        return this.foldBinaryOperations(expressions, operators);
+      }
+      return this.buildLogicalAndExpression(this.firstOperand(operands, 'logical or expression'));
     }
-    return this.buildLogicalAndExpression(ctx.logicalAndExpression());
+    const operands = this.asArray(ctx.logicalAndExpression());
+    return this.buildLogicalAndExpression(this.firstOperand(operands, 'logical or expression'));
   }
 
   private static buildLogicalAndExpression(ctx: any): WdlExpression {
     if (ctx instanceof LogicalAndExprOperationContext) {
-      return new WdlBinaryOperation(
-        this.buildLogicalAndExpression(ctx.logicalAndExpression()),
-        WdlBinaryOperator.AND,
-        this.buildEqualityExpression(ctx.equalityExpression()),
-      );
+      const operands = this.asArray(ctx.equalityExpression());
+      if (operands.length > 1) {
+        const expressions = operands.map((operand) => this.buildEqualityExpression(operand));
+        const operators = new Array<WdlBinaryOperator>(operands.length - 1).fill(
+          WdlBinaryOperator.AND,
+        );
+        return this.foldBinaryOperations(expressions, operators);
+      }
+      return this.buildEqualityExpression(this.firstOperand(operands, 'logical and expression'));
     }
-    return this.buildEqualityExpression(ctx.equalityExpression());
+    const operands = this.asArray(ctx.equalityExpression());
+    return this.buildEqualityExpression(this.firstOperand(operands, 'logical and expression'));
   }
 
   private static buildEqualityExpression(ctx: any): WdlExpression {
     if (ctx instanceof EqualityExprOperationContext) {
-      return new WdlBinaryOperation(
-        this.buildEqualityExpression(ctx.equalityExpression()),
-        ctx.EQUAL() ? WdlBinaryOperator.EQ : WdlBinaryOperator.NEQ,
-        this.buildComparisonExpression(ctx.comparisonExpression()),
-      );
+      const operands = this.asArray(ctx.comparisonExpression());
+      if (operands.length > 1) {
+        const expressions = operands.map((operand) => this.buildComparisonExpression(operand));
+        const operators = this.collectBinaryOperatorSymbols(ctx).map((symbol) => {
+          if (symbol === '==') return WdlBinaryOperator.EQ;
+          if (symbol === '!=') return WdlBinaryOperator.NEQ;
+          throw new AssertionError(`Unknown equality operator: ${symbol}`);
+        });
+        return this.foldBinaryOperations(expressions, operators);
+      }
+      return this.buildComparisonExpression(this.firstOperand(operands, 'equality expression'));
     }
-    return this.buildComparisonExpression(ctx.comparisonExpression());
+    const operands = this.asArray(ctx.comparisonExpression());
+    return this.buildComparisonExpression(this.firstOperand(operands, 'equality expression'));
   }
 
   private static buildComparisonExpression(ctx: any): WdlExpression {
     if (ctx instanceof ComparisonExprOperationContext) {
-      let op: WdlBinaryOperator;
-      if (ctx.LESS()) {
-        op = WdlBinaryOperator.LT;
-      } else if (ctx.LESS_EQUAL()) {
-        op = WdlBinaryOperator.LTE;
-      } else if (ctx.GREATER()) {
-        op = WdlBinaryOperator.GT;
-      } else if (ctx.GREATER_EQUAL()) {
-        op = WdlBinaryOperator.GTE;
-      } else {
-        throw new AssertionError('Unknown comparison operator');
+      const operands = this.asArray(ctx.additiveExpression());
+      if (operands.length > 1) {
+        const expressions = operands.map((operand) => this.buildAdditiveExpression(operand));
+        const operators = this.collectBinaryOperatorSymbols(ctx).map((symbol) => {
+          switch (symbol) {
+            case '<':
+              return WdlBinaryOperator.LT;
+            case '<=':
+              return WdlBinaryOperator.LTE;
+            case '>':
+              return WdlBinaryOperator.GT;
+            case '>=':
+              return WdlBinaryOperator.GTE;
+            default:
+              throw new AssertionError(`Unknown comparison operator: ${symbol}`);
+          }
+        });
+        return this.foldBinaryOperations(expressions, operators);
       }
-      return new WdlBinaryOperation(
-        this.buildComparisonExpression(ctx.comparisonExpression()),
-        op,
-        this.buildAdditiveExpression(ctx.additiveExpression()),
-      );
+      return this.buildAdditiveExpression(this.firstOperand(operands, 'comparison expression'));
     }
-    return this.buildAdditiveExpression(ctx.additiveExpression());
+    const operands = this.asArray(ctx.additiveExpression());
+    return this.buildAdditiveExpression(this.firstOperand(operands, 'comparison expression'));
   }
 
   private static buildAdditiveExpression(ctx: any): WdlExpression {
     if (ctx instanceof AdditiveExprOperationContext) {
-      return new WdlBinaryOperation(
-        this.buildAdditiveExpression(ctx.additiveExpression()),
-        ctx.PLUS() ? WdlBinaryOperator.ADD : WdlBinaryOperator.SUBTRACT,
-        this.buildMultiplicativeExpression(ctx.multiplicativeExpression()),
-      );
+      const operands = this.asArray(ctx.multiplicativeExpression());
+      if (operands.length > 1) {
+        const expressions = operands.map((operand) => this.buildMultiplicativeExpression(operand));
+        const operators = this.collectBinaryOperatorSymbols(ctx).map((symbol) => {
+          if (symbol === '+') return WdlBinaryOperator.ADD;
+          if (symbol === '-') return WdlBinaryOperator.SUBTRACT;
+          throw new AssertionError(`Unknown additive operator: ${symbol}`);
+        });
+        return this.foldBinaryOperations(expressions, operators);
+      }
+      return this.buildMultiplicativeExpression(this.firstOperand(operands, 'additive expression'));
     }
-    return this.buildMultiplicativeExpression(ctx.multiplicativeExpression());
+    const operands = this.asArray(ctx.multiplicativeExpression());
+    return this.buildMultiplicativeExpression(this.firstOperand(operands, 'additive expression'));
   }
 
   private static buildMultiplicativeExpression(ctx: any): WdlExpression {
     if (ctx instanceof MultiplicativeExprOperationContext) {
-      let op: WdlBinaryOperator;
-      if (ctx.ASTERISK()) {
-        op = WdlBinaryOperator.MULTIPLY;
-      } else if (ctx.SLASH()) {
-        op = WdlBinaryOperator.DIVIDE;
-      } else if (ctx.PERCENT()) {
-        op = WdlBinaryOperator.MODULO;
-      } else {
-        throw new AssertionError('Unknown multiplicative operator');
+      const operands = this.asArray(ctx.powerExpression());
+      if (operands.length > 1) {
+        const expressions = operands.map((operand) => this.buildPowerExpression(operand));
+        const operators = this.collectBinaryOperatorSymbols(ctx).map((symbol) => {
+          switch (symbol) {
+            case '*':
+              return WdlBinaryOperator.MULTIPLY;
+            case '/':
+              return WdlBinaryOperator.DIVIDE;
+            case '%':
+              return WdlBinaryOperator.MODULO;
+            default:
+              throw new AssertionError(`Unknown multiplicative operator: ${symbol}`);
+          }
+        });
+        return this.foldBinaryOperations(expressions, operators);
       }
-      return new WdlBinaryOperation(
-        this.buildMultiplicativeExpression(ctx.multiplicativeExpression()),
-        op,
-        this.buildPowerExpression(ctx.powerExpression()),
-      );
+      return this.buildPowerExpression(this.firstOperand(operands, 'multiplicative expression'));
     }
-    return this.buildPowerExpression(ctx.powerExpression());
+    const operands = this.asArray(ctx.powerExpression());
+    return this.buildPowerExpression(this.firstOperand(operands, 'multiplicative expression'));
   }
 
   private static buildPowerExpression(ctx: any): WdlExpression {

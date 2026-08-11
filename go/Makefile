@@ -9,11 +9,12 @@ VERSION ?= $(shell tr -d '[:space:]' < version 2>/dev/null)
 
 clean:
 	@go clean ./...
+	@find ./grammar -name '*.go' ! -name 'package.go' -delete
 
-build:
+build: generate
 	@go build ./...
 
-test:
+test: generate
 	@go test ./...
 
 lint:
