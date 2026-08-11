@@ -88,7 +88,7 @@ func TestImportEdgeCaseFixtures(t *testing.T) {
 			if err != nil {
 				t.Fatalf("resolver init failed: %v", err)
 			}
-			loader := NewLoader()
+			loader := NewWdlV1Loader()
 			validator := NewSemanticValidator(SemanticValidatorConfig{})
 			rootWDL := filepath.Join(root, tc.scenario, "root.wdl")
 			_, loadErr := loader.LoadFile(context.Background(), rootWDL, WithResolver(resolver), WithValidator(validator))
@@ -108,7 +108,7 @@ func runSharedFixtureConformanceMatrix(t *testing.T, root string, validator Vali
 	if err != nil {
 		t.Fatalf("resolver init failed: %v", err)
 	}
-	loader := NewLoader()
+	loader := NewWdlV1Loader()
 
 	for _, name := range failureFixtures {
 		path := filepath.Join(root, name)

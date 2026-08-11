@@ -30,7 +30,7 @@ func TestImportValidationFixtures(t *testing.T) {
 			if err != nil {
 				t.Fatalf("resolver init failed: %v", err)
 			}
-			loader := NewLoader()
+			loader := NewWdlV1Loader()
 			validator := NewSemanticValidator(SemanticValidatorConfig{})
 
 			path := filepath.Join(root, tc.relRootWDL)

@@ -59,7 +59,7 @@ This follows the same generated-code split used in the Java, Python, and TypeScr
 
 ## Loading Files And Imports
 
-`wdl.Loader` is the entry point for parsing and import-aware document loading.
+`wdl.WdlV1Loader` is the entry point for parsing and import-aware document loading.
 
 - Imports are resolved recursively and attached to the root document through `ImportedDocs` and `ImportStatements`.
 - Resolution is delegated to `wdl.Resolver` implementations.

@@ -8,7 +8,7 @@ import (
 
 func TestGrammarBehaviorAssociativityFixturesParse(t *testing.T) {
 	fixturesRoot := filepath.Join("..", "..", "wdl_tests", "grammar_behavior")
-	loader := NewLoader()
+	loader := NewWdlV1Loader()
 
 	for _, name := range []string{
 		"associativity_additive_chain.wdl",
@@ -28,7 +28,7 @@ func TestGrammarBehaviorAssociativityFixturesParse(t *testing.T) {
 
 func TestGrammarBehaviorReservedKeywordFixturesFailParse(t *testing.T) {
 	fixturesRoot := filepath.Join("..", "..", "wdl_tests", "grammar_behavior")
-	loader := NewLoader()
+	loader := NewWdlV1Loader()
 
 	for _, name := range []string{
 		"keyword_decl_identifier_task.wdl",

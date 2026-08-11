@@ -15,7 +15,7 @@ func TestLintValidatorFixtureWarnings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolver init failed: %v", err)
 	}
-	loader := NewLoader()
+	loader := NewWdlV1Loader()
 	validator := NewLintingValidator(SemanticValidatorConfig{ThrowOnWarnings: true})
 
 	_, loadErr := loader.LoadFile(context.Background(), fixture, WithResolver(resolver), WithValidator(validator))

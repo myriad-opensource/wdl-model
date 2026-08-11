@@ -10,7 +10,7 @@ import (
 
 func TestSpecExamplesParse(t *testing.T) {
 	root := filepath.Join("..", "..", "wdl-grammar", "spec_examples")
-	loader := NewLoader()
+	loader := NewWdlV1Loader()
 	count := 0
 	parseFailuresExpectedWithReservedKeywords := map[string]struct{}{
 		"test_find_task.wdl":         {},

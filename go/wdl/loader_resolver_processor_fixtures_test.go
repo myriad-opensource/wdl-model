@@ -14,7 +14,7 @@ func TestLoaderImportsRecursiveFixture(t *testing.T) {
 		t.Fatalf("resolver init failed: %v", err)
 	}
 	root := filepath.Join("..", "..", "wdl_tests", "loader_imports", "recursive", "root.wdl")
-	loader := NewLoader()
+	loader := NewWdlV1Loader()
 	doc, err := loader.LoadFile(context.Background(), root, WithResolver(resolver))
 	if err != nil {
 		t.Fatalf("load failed: %v", err)
@@ -42,7 +42,7 @@ func TestLoaderImportsFromStringFixture(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read fixture failed: %v", err)
 	}
-	loader := NewLoader()
+	loader := NewWdlV1Loader()
 	doc, err := loader.LoadString(context.Background(), string(buf), WithResolver(resolver), WithSourceLocation(rootPath))
 	if err != nil {
 		t.Fatalf("load failed: %v", err)
@@ -58,7 +58,7 @@ func TestLoaderImportsCircularFixture(t *testing.T) {
 		t.Fatalf("resolver init failed: %v", err)
 	}
 	root := filepath.Join("..", "..", "wdl_tests", "loader_imports", "circular", "root.wdl")
-	loader := NewLoader()
+	loader := NewWdlV1Loader()
 	_, err = loader.LoadFile(context.Background(), root, WithResolver(resolver))
 	if err == nil {
 		t.Fatal("expected circular import error")
@@ -75,7 +75,7 @@ func TestLoaderImportsCircularRelativeFixture(t *testing.T) {
 		t.Fatalf("resolver init failed: %v", err)
 	}
 	root := filepath.Join("..", "..", "wdl_tests", "loader_imports", "circular_relative", "root.wdl")
-	loader := NewLoader()
+	loader := NewWdlV1Loader()
 	_, err = loader.LoadFile(context.Background(), root, WithResolver(resolver))
 	if err == nil {
 		t.Fatal("expected circular import error")
@@ -107,7 +107,7 @@ func TestProcessorImportsFixtureTraversal(t *testing.T) {
 		t.Fatalf("resolver init failed: %v", err)
 	}
 	root := filepath.Join("..", "..", "wdl_tests", "processor_imports", "root.wdl")
-	loader := NewLoader()
+	loader := NewWdlV1Loader()
 	doc, err := loader.LoadFile(context.Background(), root, WithResolver(resolver))
 	if err != nil {
 		t.Fatalf("load failed: %v", err)

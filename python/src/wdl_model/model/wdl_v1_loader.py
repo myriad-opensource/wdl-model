@@ -103,7 +103,7 @@ from .types import (
 )
 from .wdl_document import WdlDocument
 from .wdl_version import WdlVersion
-from .resolvers import WdlImportResolver, WdlImportResolverBase
+from .resolvers import WdlImportResolverBase, WdlImportResolverHttpx
 
 
 class _WdlErrorListener(ErrorListener):
@@ -195,7 +195,7 @@ class WdlV1Loader(WdlV1ParserVisitor):
         """Parse a source string into a ``WdlDocument`` and optionally validate it."""
         resolver = import_resolver
         if source_location is not None and resolver is None:
-            resolver = WdlImportResolver()
+            resolver = WdlImportResolverHttpx()
         return cls.load(InputStream(source_code), validator, resolver, source_location)
 
     @classmethod
@@ -208,7 +208,7 @@ class WdlV1Loader(WdlV1ParserVisitor):
         """Parse a UTF-8 source file into a ``WdlDocument`` and optionally validate it."""
         path = Path(file_path)
         resolver = (
-            import_resolver if import_resolver is not None else WdlImportResolver()
+            import_resolver if import_resolver is not None else WdlImportResolverHttpx()
         )
         return cls.load(
             InputStream(path.read_text(encoding="utf-8")),

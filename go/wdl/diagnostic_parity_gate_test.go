@@ -63,7 +63,7 @@ func TestDiagnosticParityGate(t *testing.T) {
 		},
 	}
 
-	loader := NewLoader()
+	loader := NewWdlV1Loader()
 	for _, tc := range tests {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
