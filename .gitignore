@@ -1,2 +1,4 @@
 /tmp/
 /spec_examples/
+.vscode/
+.DS_Store

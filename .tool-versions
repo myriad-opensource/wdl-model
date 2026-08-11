@@ -1,4 +1,6 @@
+golang 1.26.5 system
 java temurin-11.0.27+6 system
 maven 3.9.10 system
 python 3.10.15 system
 poetry 1.8.5 system
+nodejs 22.16.0 system

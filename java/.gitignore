@@ -1,0 +1,13 @@
+dependency-reduced-pom.xml
+/target/
+/.classpath
+/.project
+/.settings
+/bin/
+*.iml
+.DS_Store
+
+# Benchmark/profiling artifacts
+.profiles/
+*.jfr
+bench*.txt
