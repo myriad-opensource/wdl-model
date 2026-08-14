@@ -266,14 +266,32 @@ formatting-diff hunks intersect the added code).
 | 3.2 | Confirm the 8 `PARSE_GAP` spec files now parse (`import_structs`, `map_to_struct2`, `member_access`, `nested_access`, `pair_to_struct`, `person_struct_task`, `struct_to_struct`, `test_struct`). If they do, remove the `PARSE_GAP` list from `spec_validation_test.rs:25-34` — a direct consequence of the fix, not scope creep. `VALIDATOR_FALSE_POSITIVE` stays. | done — removed `PARSE_GAP` const and its usage from `spec_validation_test.rs`; `cargo test --test spec_validation_test` still passes 3/3 (v1_1/v1_2/v1_3) with all 22 previously-skipped files (8 files × up to 3 versions each) now genuinely parsing and validating |
 | 3.3 | Full regression: `cargo test`, `cargo clippy -- -D warnings`, `cargo fmt --check` | done — same 2 pre-existing failures as Phase 2 (`accepts_import_alias_nested`, `test_accepts_simple_valid_workflow`), no new clippy warnings, `rustfmt --check` clean on the touched file (one pre-existing-style line-wrap fixed as a direct side effect of removing the `skip_parse` condition, not unrelated drift) |
 
-## Phase 4 — Java parity audit (report only, no edits)
+## Phase 4 — Java parity audit (report only, no edits) (DONE)
 
-Systematically diff each `rust/tests/*.rs` against its counterpart in
-`java/src/test/java/org/openwdl/wdl/model/**`, and cross-check `typescript/test/`,
-`python/tests/`, `go/wdl/` for the shared `wdl_tests/` fixtures. Deliver a table of:
-missing cases, extra cases, and validator-level mismatches.
+Systematically diffed each `rust/tests/*.rs` against its counterpart in
+`java/src/test/java/org/openwdl/wdl/model/**`, and cross-checked `typescript/test/`,
+`python/tests/`, `go/wdl/` for the shared `wdl_tests/` fixtures.
 
-Already-identified gaps to seed it:
+**Full findings: see `rust/.context/phase4_java_parity_audit.md`** — a per-file
+comparison table plus a prioritized follow-up list. No test or fixture files were
+modified; this phase was audit-only as planned.
+
+Headline findings (details in the audit doc):
+- Confirmed all of the "already-identified gaps" below, with exact fixture/case counts.
+- Two large, purely mechanical gaps found (fixtures already exist on disk, just need
+  test functions written): `import_validation_test.rs` is missing ~15 spec-examples-based
+  cases; `spec_validation_test.rs` has zero validation assertions against any `_fail.wdl`
+  spec example (dozens of missing cases) — the original `rust_phase_7.md` Step 1 plan
+  intended this, but it was descoped to "skip all `_fail` files" instead.
+- Two structural gaps found (need new test files/logic, not just fixtures):
+  `loader_test.rs` has zero coverage of grammar-behavior (associativity, reserved
+  keywords) and loader-imports (recursive/circular import resolution) fixtures;
+  `processor_test.rs` mirrors only 2 of Java's 5 processor test classes.
+- One direct follow-up to this plan's own Phase 2 fix: `non_runtime_completion_test.rs`
+  explicitly skips `unknown_struct_field_fail.wdl` citing the exact grammar limitation
+  Phase 2 fixed — worth re-checking whether it can now be un-skipped.
+
+Already-identified gaps that seeded this audit (all confirmed, see doc for exact scope):
 - `type_assignability_matrix_test.rs` is missing `file_directory_from_string_ok.wdl`,
   `struct_to_struct_coercion_ok.wdl`, `struct_to_struct_incompatible_fail.wdl` (all
   present in Java/TS/Python/Go)
