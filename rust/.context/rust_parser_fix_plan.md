@@ -84,32 +84,116 @@ All other binaries pass, including `spec_parse_test` (all spec examples parse wi
 panic) and `spec_validation_test` (with the existing `PARSE_GAP`/`VALIDATOR_FALSE_POSITIVE`
 skips still in place). Re-confirmed identical after the symlink/build.rs cleanup above.
 
-## Phase 1 — Confirm root cause
+## Phase 1 — Confirm root cause (DONE)
 
-| Step | Action |
-|---|---|
-| 1.1 | Throwaway harness (`rust/tests/probe_sync.rs`, deleted afterward) parsing `struct P { A a }` and `workflow w { S s = S { x: 1 } }` |
-| 1.2 | Instrument via a temporary `ErrorStrategy` that logs, at each `sync()`: `recognizer.get_state()`, `atn().next_tokens(state)`, `get_expected_tokens()`, and `la(1)` |
-| 1.3 | Assert: `next_tokens` omits `IDENTIFIER` while `get_expected_tokens` contains it -> hypothesis confirmed. If **not** confirmed, stop and re-plan rather than applying a fix that masks a different defect. |
+| Step | Action | Result |
+|---|---|---|
+| 1.1 | Throwaway harness `rust/tests/probe_sync.rs` (deleted after this phase; not part of the permanent suite) parsing `struct Person { Address addr }` / `struct Address { String city }` and the real `wdl_tests/non_runtime_completion/import_alias_nested/lib.wdl` fixture | done |
+| 1.2 | A probing `ErrorStrategy` wrapping `DefaultErrorStrategy` logged, at each `sync()` call: `recognizer.get_state()`, `atn().next_tokens(state)`, `get_expected_tokens()` (both boolean `.contains(la)` and the full `.to_token_string()`), plus an attached `ErrorListener` recording `syntax_error()` notifications in the same interleaved log | done |
+| 1.3 | Original hypothesis ("`next_tokens` context-free set omits `IDENTIFIER`, `get_expected_tokens` context-aware set contains it") — **confirmed but refined**, see below | done, refined |
 
-## Phase 2 — Surgical fix
+### Refined root cause: `IntervalSet::contains()` is unreliable, not just `next_tokens`
+
+Original hypothesis: `sync()`'s early-return check `next_tokens.contains(la)` uses an
+incomplete context-free set, while the context-aware `get_expected_tokens()` set is
+correct. **This is only half the story.** Direct instrumentation of the real failing
+fixture (`import_alias_nested/lib.wdl`) shows:
+
+At the `structDefinition`'s `structItem*` loop-back decision (ATN state `346`, confirmed
+`ATNSTATE_PLUS_LOOP_BACK`/`STAR_LOOP_BACK` type from `DefaultErrorStrategy::sync`'s
+branch), parsing the **second** struct's field (`Address addr`, lookahead
+`IDENTIFIER`/token id 52):
+
+```
+sync: state=346 la=52 next_tokens_contains_la=false expected_contains_la=false
+       expected={..., KEYWORD_WORKFLOW, IDENTIFIER, KEYWORD_PARAMETER_META, CLOSE_BRACE}
+SYNTAX_ERROR line=8 col=2 msg=mismatched input 'Address' expecting {..., IDENTIFIER, ...}
+```
+
+**`expected.contains(52)` returns `false`, yet the same `IntervalSet`'s own
+`to_token_string()` rendering explicitly lists `IDENTIFIER` as a member.** These two
+methods disagree about membership on the *same* `IntervalSet` instance:
+
+- `IntervalSet::contains()` (`interval_set.rs`) uses `self.intervals.binary_search_by(...)`,
+  which is only correct if `self.intervals` is sorted and non-overlapping.
+- `IntervalSet::to_token_string()` just linearly iterates `self.intervals` in whatever
+  order they happen to be in — no sortedness assumption, so it can't be fooled by the same
+  invariant violation.
+
+So the `intervals: Vec<Interval>` backing this specific `IntervalSet` (built via
+`ATN::get_expected_tokens` in `atn.rs`, which repeatedly calls `expected.add_set(following)`
+then `expected.remove_one(TOKEN_EPSILON)` once per stack frame in `states_stack`) ends up
+with an interval containing `IDENTIFIER` that is **out of sorted order relative to the
+rest of the vec**, breaking the invariant `contains()`'s binary search depends on — a
+latent bug in `antlr4rust` 0.5.2's `IntervalSet`/`ATN::get_expected_tokens`/`remove_one`
+interaction, not (only) an incomplete-set problem specific to `next_tokens`.
+
+Practical implication: `next_tokens.contains(la)` **and** `get_expected_tokens().contains(la)`
+are *both* unreliable membership checks in general — not just the cheap
+context-free one. Any fix that gates on `.contains()` (from either set) inherits this
+same defect and could still intermittently reject valid input, just less often.
+
+### Why the minimal, in-isolation repros didn't reproduce a hard failure
+
+`probe_struct_field_user_type`/`probe_workflow_struct_var_decl` (hand-written 2-struct/
+1-struct fixtures) hit the same `next_tokens=false`/`expected=true` (not `false`) pattern
+at ATN state `582` (the inner `wdlType` alt-selection decision) but the overall parse
+still succeeded (`had_error=false`) — because `DefaultErrorStrategy::sync()` has an
+earlier unconditional early-return: `if next_tokens.contains(TOKEN_EPSILON) { ...; return
+Ok(()); }`. The decision points hit in the simpler repros happen to have a valid epsilon
+(loop-exit) alternative, so `sync()` quietly defers to `adaptive_predict` without ever
+reaching the `PLUS_LOOP_BACK`/`STAR_LOOP_BACK` match arm that calls
+`report_unwanted_token`. The **real** fixture (`lib.wdl`, two struct definitions) reaches
+a *different*, later decision point (state `346`, the loop-back after already having
+matched one full `structItem` and re-entering the loop for its second iteration) where
+this early-return doesn't apply, and the underlying `IntervalSet` bug then manifests as
+a hard, listener-reported syntax error. This explains why a trivial single-declaration
+repro can look fine while a two-struct real-world file fails — it depends on exactly
+which ATN decision state is reached, which varies with grammar-position and
+loop-iteration count, not just presence of a user-defined type reference.
+
+### Consequence for Phase 2
+
+The originally-planned surgical fix (`sync()` override that checks
+`get_expected_tokens().contains(la)` before delegating) is now known to rely on **the
+same buggy `contains()` method** that causes the failure in the first place — it could
+still intermittently fail to unblock valid input, just less often, since it happens to
+be correct along more code paths (having `TOKEN_EPSILON` handling, per-stack-frame
+recomputation) than `next_tokens` alone but is *not proven reliable*. Given no public API
+exists to iterate `IntervalSet`'s raw ranges directly (its `intervals` field is private;
+`to_token_string()` is the only publicly-accessible order-independent view, and it's
+string-based, not suitable for a hot-path equality check), the **full no-op `sync()`**
+option (originally listed as a fallback, matching ANTLR's own `BailErrorStrategy`
+behavior) is now the recommended primary approach for Phase 2, not the surgical variant:
+it sidesteps `IntervalSet::contains()` entirely rather than trusting a different call
+into the same broken machinery. Real syntax errors are still caught elsewhere: normal
+token matching (`match_token`) uses direct token-id equality, not interval-set
+membership, so genuinely malformed WDL will still fail via `recover_inline`/mismatched
+`match_token` when the parser reaches an actual dead end.
+
+## Phase 2 — Fix (revised: full no-op `sync()`, not the surgical `contains()` guard)
 
 In `rust/src/loader.rs`, add alongside `WdlErrorListener` (~line 155):
 
 ```rust
+/// antlr4rust 0.5.2's DefaultErrorStrategy::sync() gates its early-return decisions
+/// on IntervalSet::contains(), which has a confirmed sortedness-invariant bug (see
+/// rust_parser_fix_plan.md Phase 1): it can return `false` for tokens that a linear
+/// scan of the very same set (IntervalSet::to_token_string) shows are present. Both
+/// the context-free `next_tokens` set AND the context-aware `get_expected_tokens()`
+/// set go through this same buggy `contains()`, so neither is safe to gate on.
+///
+/// sync() exists purely as an optimistic pre-check ahead of the real decision
+/// (`adaptive_predict`, a separate ALL(*)/SLL simulation not affected by this bug).
+/// Skipping it entirely — mirroring antlr4rust's own `BailErrorStrategy` — defers
+/// fully to `adaptive_predict` and to ordinary token matching (`match_token`, a
+/// direct token-id equality check, unaffected by IntervalSet) for detecting real
+/// errors. Every other method delegates verbatim to `DefaultErrorStrategy`.
 struct WdlErrorStrategy<'i, Ctx: ParserNodeType<'i>>(DefaultErrorStrategy<'i, Ctx>);
 
 impl<'a, T: Parser<'a>> ErrorStrategy<'a, T> for WdlErrorStrategy<'a, T::Node> {
-    fn sync(&mut self, recognizer: &mut T) -> Result<(), ANTLRError> {
-        // antlr4rust's DefaultErrorStrategy::sync gates on the context-free
-        // ATN::next_tokens set, which is incomplete for `wdlType -> typeRefType`.
-        // If the context-aware expected set accepts the lookahead, let
-        // adaptive_predict make the real decision.
-        let la = recognizer.get_input_stream_mut().la(1);
-        if recognizer.get_expected_tokens().contains(la) {
-            return Ok(());
-        }
-        self.0.sync(recognizer)
+    fn sync(&mut self, _recognizer: &mut T) -> Result<(), ANTLRError> {
+        Ok(())
     }
     // every other method delegates verbatim to self.0
 }
@@ -119,9 +203,11 @@ Wire in at `loader.rs:197` — `WdlV1Parser::with_strategy(token_stream,
 Box::new(WdlErrorStrategy::new()))` (generated at `wdlv1parser.rs:396`) instead of
 `WdlV1Parser::new`.
 
-Fallback if `get_expected_tokens` isn't reachable through the public `Parser` trait or the
-surgical guard proves insufficient: full no-op `sync()`, matching ANTLR's own
-`BailErrorStrategy`.
+(The originally-planned surgical `if get_expected_tokens().contains(la) { return Ok(()) }`
+guard is no longer recommended — see Phase 1's "Consequence for Phase 2" section above.
+Keep it in mind only as a fallback if the no-op version turns out to be too permissive
+in practice, e.g. if it causes genuinely malformed WDL to silently mis-parse instead of
+error — watch for this specifically in the mandatory negative-case verification below.)
 
 Negative-case verification (mandatory):
 - Every `_fail.wdl` under `wdl_tests/` still errors
