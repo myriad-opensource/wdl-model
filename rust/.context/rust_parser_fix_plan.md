@@ -258,13 +258,13 @@ clean — no new warnings; remaining clippy warnings and loader.rs formatting di
 pre-existing and untouched by this change (verified via `git diff` that none of the
 formatting-diff hunks intersect the added code).
 
-## Phase 3 — Validate against pristine fixtures
+## Phase 3 — Validate against pristine fixtures (DONE)
 
-| Step | Action |
-|---|---|
-| 3.1 | The 4 baseline-failing test files pass **with fixtures untouched** — no `wdl_tests/**` edits, this is the whole point |
-| 3.2 | Confirm the 8 `PARSE_GAP` spec files now parse (`import_structs`, `map_to_struct2`, `member_access`, `nested_access`, `pair_to_struct`, `person_struct_task`, `struct_to_struct`, `test_struct`). If they do, remove the `PARSE_GAP` list from `spec_validation_test.rs:25-34` — a direct consequence of the fix, not scope creep. `VALIDATOR_FALSE_POSITIVE` stays. |
-| 3.3 | Full regression: `cargo test`, `cargo clippy -- -D warnings`, `cargo fmt --check` |
+| Step | Action | Result |
+|---|---|---|
+| 3.1 | The 4 baseline-failing test files pass **with fixtures untouched** — no `wdl_tests/**` edits, this is the whole point | done in Phase 2 — 3 of the 4 originally-failing tests now pass; the 4th (`accepts_import_alias_nested`) now parses correctly but fails at a separate, pre-existing validator step (see Phase 2 writeup) |
+| 3.2 | Confirm the 8 `PARSE_GAP` spec files now parse (`import_structs`, `map_to_struct2`, `member_access`, `nested_access`, `pair_to_struct`, `person_struct_task`, `struct_to_struct`, `test_struct`). If they do, remove the `PARSE_GAP` list from `spec_validation_test.rs:25-34` — a direct consequence of the fix, not scope creep. `VALIDATOR_FALSE_POSITIVE` stays. | done — removed `PARSE_GAP` const and its usage from `spec_validation_test.rs`; `cargo test --test spec_validation_test` still passes 3/3 (v1_1/v1_2/v1_3) with all 22 previously-skipped files (8 files × up to 3 versions each) now genuinely parsing and validating |
+| 3.3 | Full regression: `cargo test`, `cargo clippy -- -D warnings`, `cargo fmt --check` | done — same 2 pre-existing failures as Phase 2 (`accepts_import_alias_nested`, `test_accepts_simple_valid_workflow`), no new clippy warnings, `rustfmt --check` clean on the touched file (one pre-existing-style line-wrap fixed as a direct side effect of removing the `skip_parse` condition, not unrelated drift) |
 
 ## Phase 4 — Java parity audit (report only, no edits)
 
