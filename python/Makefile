@@ -13,10 +13,13 @@ lock:
 	poetry lock
 
 clean:
-	rm -rf .pytest_cache .ruff_cache dist build src/wdl_model/grammar/v1
+	rm -rf .pytest_cache .ruff_cache dist build
 	find . -type d -name __pycache__ -prune -exec rm -rf {} +
 
-build: generate-grammar
+clean-grammar:
+	rm -rf src/wdl_model/grammar/v1
+
+build: install generate-grammar
 
 test: build
 	poetry run pytest -q
@@ -25,6 +28,13 @@ package: build
 	poetry build
 
 publish-release: lint test package
+	@$(MAKE) generate-grammar
+	@if git status --porcelain ./src/wdl_model/grammar/v1 | grep -q .; then \
+		echo "ERROR: generated grammar artifacts are out of sync or untracked."; \
+		echo "Run 'make generate-grammar' and commit changes under python/src/wdl_model/grammar/v1 before publishing."; \
+		git status --short ./src/wdl_model/grammar/v1; \
+		exit 1; \
+	fi; \
 	@VERSION=$$(poetry version -s); \
 	if [ -z "$$VERSION" ]; then \
 		echo "ERROR: could not read version from pyproject.toml"; \

@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass, field
 
+from wdl_model.model.base import WdlSourceRange
 from wdl_model.model.definitions import WdlWorkflowElement
 from wdl_model.model.expressions import WdlExpression
 
@@ -21,6 +22,7 @@ class WdlScatter(WdlStatement, WdlWorkflowElement):
 
     name: str | None = None
     collection: WdlExpression | None = None
+    source_range: WdlSourceRange | None = None
     _statements: deque[WdlStatement] = field(default_factory=deque)
 
     def statements(self) -> deque[WdlStatement]:

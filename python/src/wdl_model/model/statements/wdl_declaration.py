@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from wdl_model.model.base import WdlSourceRange
 from wdl_model.model.expressions import WdlExpression
 from wdl_model.model.types import WdlType
 
@@ -21,6 +22,7 @@ class WdlDeclaration(WdlStatement):
     type: WdlType | None = None
     name: str | None = None
     environmentVariable: bool = False
+    source_range: WdlSourceRange | None = None
 
     def componentType(self) -> ComponentType:
         """Return the statement category for traversal and validation dispatch."""

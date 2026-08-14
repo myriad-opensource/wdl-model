@@ -2,7 +2,7 @@
 //
 // The package is intentionally split into small, Go-idiomatic entry points:
 //
-//   - Loader for parsing source and resolving imports.
+//   - WdlV1Loader for parsing source and resolving imports.
 //   - Resolver for local file and HTTP(S) import retrieval.
 //   - Validator for semantic/static/lint pass integration.
 //

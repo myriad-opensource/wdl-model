@@ -136,7 +136,7 @@ func TestTraverseDocumentVisitsImports(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolver init: %v", err)
 	}
-	loader := NewLoader()
+	loader := NewWdlV1Loader()
 	doc, err := loader.LoadFile(context.Background(), rootPath, WithResolver(resolver))
 	if err != nil {
 		t.Fatalf("load: %v", err)
@@ -179,7 +179,7 @@ func TestTraverseDocumentSourceOrderAndDetailedCallbacks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolver init: %v", err)
 	}
-	loader := NewLoader()
+	loader := NewWdlV1Loader()
 	doc, err := loader.LoadFile(context.Background(), rootPath, WithResolver(resolver))
 	if err != nil {
 		t.Fatalf("load: %v", err)
@@ -254,7 +254,7 @@ workflow main {
 		t.Fatalf("write root: %v", err)
 	}
 
-	loader := NewLoader()
+	loader := NewWdlV1Loader()
 	doc, err := loader.LoadFile(context.Background(), rootPath)
 	if err != nil {
 		t.Fatalf("load: %v", err)

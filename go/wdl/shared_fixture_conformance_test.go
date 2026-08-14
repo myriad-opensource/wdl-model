@@ -47,8 +47,15 @@ func TestTypeAssignabilityMatrixFixtures(t *testing.T) {
 			"required_string_to_int_fail.wdl",
 			"array_string_to_int_fail.wdl",
 			"map_value_type_fail.wdl",
+			"struct_to_struct_incompatible_fail.wdl",
 		},
-		[]string{"optional_from_none_ok.wdl", "array_nested_ok.wdl", "map_value_type_ok.wdl"},
+		[]string{
+			"optional_from_none_ok.wdl",
+			"array_nested_ok.wdl",
+			"map_value_type_ok.wdl",
+			"file_directory_from_string_ok.wdl",
+			"struct_to_struct_coercion_ok.wdl",
+		},
 	)
 }
 
@@ -88,7 +95,7 @@ func TestImportEdgeCaseFixtures(t *testing.T) {
 			if err != nil {
 				t.Fatalf("resolver init failed: %v", err)
 			}
-			loader := NewLoader()
+			loader := NewWdlV1Loader()
 			validator := NewSemanticValidator(SemanticValidatorConfig{})
 			rootWDL := filepath.Join(root, tc.scenario, "root.wdl")
 			_, loadErr := loader.LoadFile(context.Background(), rootWDL, WithResolver(resolver), WithValidator(validator))
@@ -108,7 +115,7 @@ func runSharedFixtureConformanceMatrix(t *testing.T, root string, validator Vali
 	if err != nil {
 		t.Fatalf("resolver init failed: %v", err)
 	}
-	loader := NewLoader()
+	loader := NewWdlV1Loader()
 
 	for _, name := range failureFixtures {
 		path := filepath.Join(root, name)

@@ -1,5 +1,6 @@
 package com.myriad.wdl.model.statements;
 
+import com.myriad.wdl.model.base.WdlSourceRange;
 import com.myriad.wdl.model.definitions.WdlTask.WdlTaskElement;
 import com.myriad.wdl.model.definitions.WdlWorkflow.WdlWorkflowElement;
 import com.myriad.wdl.model.expressions.WdlExpression;
@@ -18,6 +19,7 @@ public class WdlDeclaration implements WdlStatement {
   @Getter @Setter protected WdlType type;
   @Getter @Setter protected String name;
   @Getter @Setter protected boolean environmentVariable;
+  @Getter @Setter private WdlSourceRange sourceRange;
 
   public WdlDeclaration() {}
 

@@ -33,6 +33,12 @@ const failsThatShouldParseOkV12 = new Set([
   'illegal_access_fail.wdl',
 ]);
 
+const parseFailuresExpectedWithReservedKeywordsV12 = new Set([
+  'test_find_task.wdl',
+  'test_meta_values.wdl',
+  'test_runtime_info_task.wdl',
+]);
+
 const failsThatShouldParseOkV13 = new Set([
   'select_first_only_none_fail.wdl',
   'empty_array_fail.wdl',
@@ -44,6 +50,13 @@ const failsThatShouldParseOkV13 = new Set([
   'non_empty_optional_fail.wdl',
   'test_zip_fail.wdl',
   'illegal_access_fail.wdl',
+]);
+
+const parseFailuresExpectedWithReservedKeywordsV13 = new Set([
+  'test_find_task.wdl',
+  'test_meta_values.wdl',
+  'test_runtime_info_task.wdl',
+  'test_task_previous.wdl',
 ]);
 
 const loadExamples = (version: string): string[] => {
@@ -73,7 +86,13 @@ const assertParseSpecExample = (
       throw new Error(`Parsed but failure expected: ${filename}`);
     }
   } catch (error) {
-    if (!filename.endsWith('_fail.wdl')) {
+    const reservedKeywordParseFailures =
+      version === 'v1_3'
+        ? parseFailuresExpectedWithReservedKeywordsV13
+        : version === 'v1_2'
+          ? parseFailuresExpectedWithReservedKeywordsV12
+          : new Set<string>();
+    if (!filename.endsWith('_fail.wdl') && !reservedKeywordParseFailures.has(filename)) {
       throw error;
     }
   }

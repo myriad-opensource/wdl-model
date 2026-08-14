@@ -1,5 +1,6 @@
 package com.myriad.wdl.model.statements;
 
+import com.myriad.wdl.model.base.WdlSourceRange;
 import com.myriad.wdl.model.definitions.WdlWorkflow.WdlWorkflowElement;
 import com.myriad.wdl.model.expressions.WdlExpression;
 import java.util.ArrayDeque;
@@ -15,6 +16,7 @@ import lombok.Setter;
 public final class WdlScatter implements WdlStatement, WdlWorkflowElement {
   @Getter @Setter private String name;
   @Getter @Setter private WdlExpression collection;
+  @Getter @Setter private WdlSourceRange sourceRange;
   private final ArrayDeque<WdlStatement> statements = new ArrayDeque<>();
 
   public WdlScatter() {}

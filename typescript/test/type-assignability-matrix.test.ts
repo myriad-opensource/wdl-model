@@ -11,6 +11,8 @@ describe('TypeScript type assignability matrix', () => {
     'optional_from_none_ok.wdl',
     'array_nested_ok.wdl',
     'map_value_type_ok.wdl',
+    'file_directory_from_string_ok.wdl',
+    'struct_to_struct_coercion_ok.wdl',
   ]) {
     it(`assignability accepts ${name}`, () => {
       const doc = WdlV1NodeLoader.loadFromFile(fixture('type_assignability_matrix', name));
@@ -24,6 +26,7 @@ describe('TypeScript type assignability matrix', () => {
     'required_string_to_int_fail.wdl',
     'array_string_to_int_fail.wdl',
     'map_value_type_fail.wdl',
+    'struct_to_struct_incompatible_fail.wdl',
   ]) {
     it(`assignability rejects ${name}`, () => {
       const doc = WdlV1NodeLoader.loadFromFile(fixture('type_assignability_matrix', name));

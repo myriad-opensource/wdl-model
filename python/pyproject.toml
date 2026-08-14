@@ -7,6 +7,7 @@ authors = ["Art Gramlich <art.gramlich@myriad.com>"]
 maintainers = ["Art Gramlich <art.gramlich@myriad.com>"]
 readme = "README.md"
 packages = [{ include = "wdl_model", from = "src" }]
+include = [{ path = "src/wdl_model/py.typed", format = ["sdist", "wheel"] }]
 
 [tool.poetry.dependencies]
 python = ">=3.10"

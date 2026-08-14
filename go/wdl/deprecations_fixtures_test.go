@@ -20,7 +20,7 @@ func TestDeprecationFixtures(t *testing.T) {
 		{file: "no_deprecations.wdl", wantWarn: false},
 	}
 
-	loader := NewLoader()
+	loader := NewWdlV1Loader()
 	validator := NewLintingValidator(SemanticValidatorConfig{ThrowOnWarnings: true})
 
 	for _, tc := range tests {

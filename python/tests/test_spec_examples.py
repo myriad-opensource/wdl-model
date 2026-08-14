@@ -43,6 +43,12 @@ FAILS_THAT_SHOULD_PARSE_OK_V1_2 = {
     "illegal_access_fail.wdl",
 }
 
+PARSE_FAILURES_EXPECTED_WITH_RESERVED_KEYWORDS_V1_2 = {
+    "test_find_task.wdl",
+    "test_meta_values.wdl",
+    "test_runtime_info_task.wdl",
+}
+
 FAILS_THAT_SHOULD_PARSE_OK_V1_3 = {
     "select_first_only_none_fail.wdl",
     "empty_array_fail.wdl",
@@ -56,6 +62,13 @@ FAILS_THAT_SHOULD_PARSE_OK_V1_3 = {
     "illegal_access_fail.wdl",
 }
 
+PARSE_FAILURES_EXPECTED_WITH_RESERVED_KEYWORDS_V1_3 = {
+    "test_find_task.wdl",
+    "test_meta_values.wdl",
+    "test_runtime_info_task.wdl",
+    "test_task_previous.wdl",
+}
+
 
 def _load_wdl_examples(version: str) -> list[Path]:
     version_dir = SPEC_EXAMPLES_DIR / version
@@ -65,7 +78,9 @@ def _load_wdl_examples(version: str) -> list[Path]:
 
 
 def _assert_parse_spec_example(
-    file_path: Path, fails_that_should_parse_ok: set[str]
+    file_path: Path,
+    fails_that_should_parse_ok: set[str],
+    parse_failures_expected_with_reserved_keywords: set[str],
 ) -> None:
     filename = file_path.name
     source = file_path.read_text(encoding="utf-8")
@@ -80,7 +95,10 @@ def _assert_parse_spec_example(
         ):
             raise AssertionError(f"Parsed but failure expected: {filename}")
     except WdlException as err:
-        if not filename.endswith("_fail.wdl"):
+        if (
+            not filename.endswith("_fail.wdl")
+            and filename not in parse_failures_expected_with_reserved_keywords
+        ):
             raise AssertionError(f"Failed to parse {filename}: {err}") from err
 
 
@@ -103,7 +121,7 @@ def _load_wdl_fail_examples(version: str) -> list[Path]:
     ids=lambda path: path.name,
 )
 def test_parse_v11_spec_example(file_path: Path) -> None:
-    _assert_parse_spec_example(file_path, FAILS_THAT_SHOULD_PARSE_OK_V1_1)
+    _assert_parse_spec_example(file_path, FAILS_THAT_SHOULD_PARSE_OK_V1_1, set())
 
 
 @pytest.mark.parametrize(
@@ -112,7 +130,11 @@ def test_parse_v11_spec_example(file_path: Path) -> None:
     ids=lambda path: path.name,
 )
 def test_parse_v12_spec_example(file_path: Path) -> None:
-    _assert_parse_spec_example(file_path, FAILS_THAT_SHOULD_PARSE_OK_V1_2)
+    _assert_parse_spec_example(
+        file_path,
+        FAILS_THAT_SHOULD_PARSE_OK_V1_2,
+        PARSE_FAILURES_EXPECTED_WITH_RESERVED_KEYWORDS_V1_2,
+    )
 
 
 @pytest.mark.parametrize(
@@ -121,7 +143,11 @@ def test_parse_v12_spec_example(file_path: Path) -> None:
     ids=lambda path: path.name,
 )
 def test_parse_v13_spec_example(file_path: Path) -> None:
-    _assert_parse_spec_example(file_path, FAILS_THAT_SHOULD_PARSE_OK_V1_3)
+    _assert_parse_spec_example(
+        file_path,
+        FAILS_THAT_SHOULD_PARSE_OK_V1_3,
+        PARSE_FAILURES_EXPECTED_WITH_RESERVED_KEYWORDS_V1_3,
+    )
 
 
 @pytest.mark.parametrize(

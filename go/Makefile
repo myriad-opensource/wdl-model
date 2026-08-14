@@ -1,4 +1,4 @@
-.PHONY: clean build test lint lint-strict format generate tidy publish-release profile-mem profile-mem-ui
+.PHONY: clean clean-grammar build test lint lint-strict format generate tidy publish-release profile-mem profile-mem-ui
 
 PROFILE_DIR ?= .profiles
 BENCH_PKG ?= ./wdl
@@ -10,10 +10,15 @@ VERSION ?= $(shell tr -d '[:space:]' < version 2>/dev/null)
 clean:
 	@go clean ./...
 
-build:
+clean-grammar:
+	@find ./grammar -name '*.go' ! -name 'package.go' -delete
+	@find ./grammar -name '*.tokens' -delete
+	@find ./grammar -name '*.interp' -delete
+
+build: generate
 	@go build ./...
 
-test:
+test: generate
 	@go test ./...
 
 lint:
@@ -29,6 +34,13 @@ tidy:
 	@go mod tidy
 
 publish-release: lint test
+	@$(MAKE) generate
+	@if git status --porcelain ./grammar/wdl1 | grep -q .; then \
+		echo "ERROR: generated grammar artifacts are out of sync or untracked."; \
+		echo "Run 'make generate' and commit changes under go/grammar/wdl1 before publishing."; \
+		git status --short ./grammar/wdl1; \
+		exit 1; \
+	fi; \
 	@VERSION="$(VERSION)"; \
 	if [ -z "$$VERSION" ]; then \
 		echo "ERROR: set version to a value like v0.1.0"; \

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass, field
 
-from wdl_model.model.base import WdlStringKeyValue
+from wdl_model.model.base import WdlSourceRange, WdlStringKeyValue
 from wdl_model.model.definitions import WdlWorkflowElement
 from wdl_model.model.expressions import WdlExpression
 
@@ -29,6 +29,7 @@ class WdlCall(WdlStatement, WdlWorkflowElement):
 
     alias: str | None = None
     legacyInputColonUsed: bool = False
+    source_range: WdlSourceRange | None = None
     _targetPath: deque[str] = field(default_factory=deque)
     _inputs: deque[WdlCallInput] = field(default_factory=deque)
     _afterDependencies: deque[str] = field(default_factory=deque)

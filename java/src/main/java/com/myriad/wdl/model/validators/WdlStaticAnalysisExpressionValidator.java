@@ -35,6 +35,8 @@ public class WdlStaticAnalysisExpressionValidator extends WdlExpressionValidator
       Map<String, Map<String, WdlType>> callOutputTypes,
       Map<String, Set<String>> structMembers,
       Map<String, Map<String, WdlType>> structMemberTypes,
+      Map<String, WdlType> enumValueTypes,
+      Map<String, Set<String>> enumChoiceNames,
       WdlVersion documentVersion,
       BiConsumer<WdlSemanticError.Code, String> addError) {
     super(
@@ -44,6 +46,8 @@ public class WdlStaticAnalysisExpressionValidator extends WdlExpressionValidator
         callOutputTypes,
         structMembers,
         structMemberTypes,
+        enumValueTypes,
+        enumChoiceNames,
         documentVersion,
         addError);
   }

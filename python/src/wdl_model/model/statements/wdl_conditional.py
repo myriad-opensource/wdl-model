@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass, field
 
-from wdl_model.model.base import WdlNode
+from wdl_model.model.base import WdlNode, WdlSourceRange
 from wdl_model.model.definitions import WdlWorkflowElement
 from wdl_model.model.expressions import WdlExpression
 
@@ -29,6 +29,7 @@ class WdlConditional(WdlStatement, WdlWorkflowElement):
     """Conditional statement node with ``if``, ``else if``, and ``else`` branches."""
 
     condition: WdlExpression | None = None
+    source_range: WdlSourceRange | None = None
     _thenStatements: deque[WdlStatement] = field(default_factory=deque)
     _elseIfs: deque[WdlConditionalElseIf] = field(default_factory=deque)
     _elseStatements: deque[WdlStatement] = field(default_factory=deque)

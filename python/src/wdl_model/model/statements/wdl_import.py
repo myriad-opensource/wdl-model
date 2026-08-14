@@ -9,6 +9,7 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass, field
 
+from wdl_model.model.base import WdlSourceRange
 from wdl_model.model.expressions import WdlStringLiteral
 
 
@@ -19,6 +20,7 @@ class WdlImport:
     source: WdlStringLiteral | None = None
     importIdentifier: str | None = None
     sourceText: str | None = None
+    source_range: WdlSourceRange | None = None
 
 
 @dataclass

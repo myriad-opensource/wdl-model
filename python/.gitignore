@@ -1,6 +1,3 @@
-src/wdl_model/grammar
-
-
 /build/
 /tmp/
 .vscode-server/

@@ -8,7 +8,7 @@ import (
 
 func TestSemanticValidatorRejectsDuplicateTopLevelNames(t *testing.T) {
 	src := "version 1.3\ntask x {}\nworkflow x {}\n"
-	loader := NewLoader()
+	loader := NewWdlV1Loader()
 	validator := NewSemanticValidator(SemanticValidatorConfig{})
 	_, err := loader.LoadString(context.Background(), src, WithResolver(nil), WithValidator(validator))
 	if err == nil {
@@ -21,7 +21,7 @@ func TestSemanticValidatorRejectsDuplicateTopLevelNames(t *testing.T) {
 
 func TestSemanticValidatorRequiresExactlyOneWorkflow(t *testing.T) {
 	src := "version 1.2\ntask t {}\n"
-	loader := NewLoader()
+	loader := NewWdlV1Loader()
 	validator := NewSemanticValidator(SemanticValidatorConfig{})
 	_, err := loader.LoadString(context.Background(), src, WithResolver(nil), WithValidator(validator))
 	if err == nil {
@@ -34,7 +34,7 @@ func TestSemanticValidatorRequiresExactlyOneWorkflow(t *testing.T) {
 
 func TestSemanticValidatorAcceptsSingleWorkflow(t *testing.T) {
 	src := "version 1.3\nworkflow ok {}\n"
-	loader := NewLoader()
+	loader := NewWdlV1Loader()
 	validator := NewSemanticValidator(SemanticValidatorConfig{})
 	_, err := loader.LoadString(context.Background(), src, WithResolver(nil), WithValidator(validator))
 	if err != nil {
@@ -44,7 +44,7 @@ func TestSemanticValidatorAcceptsSingleWorkflow(t *testing.T) {
 
 func TestLintingValidatorDoesNotThrowWarningsByDefault(t *testing.T) {
 	src := "version 1.3\nimport \"lib.wdl\" as lib\nworkflow wf {}\n"
-	loader := NewLoader()
+	loader := NewWdlV1Loader()
 	validator := NewLintingValidator(SemanticValidatorConfig{})
 	_, err := loader.LoadString(context.Background(), src, WithResolver(nil), WithValidator(validator))
 	if err != nil {
@@ -54,7 +54,7 @@ func TestLintingValidatorDoesNotThrowWarningsByDefault(t *testing.T) {
 
 func TestLintingValidatorCanThrowWarnings(t *testing.T) {
 	src := "version 1.3\nimport \"lib.wdl\" as lib\nworkflow wf {}\n"
-	loader := NewLoader()
+	loader := NewWdlV1Loader()
 	validator := NewLintingValidator(SemanticValidatorConfig{ThrowOnWarnings: true})
 	_, err := loader.LoadString(context.Background(), src, WithResolver(nil), WithValidator(validator))
 	if err == nil {
@@ -70,7 +70,7 @@ func TestSemanticValidatorRejectsDuplicateImportNamespaceAliases(t *testing.T) {
 		"import \"lib-a.wdl\" as dup\n" +
 		"import \"lib-b.wdl\" as dup\n" +
 		"workflow wf {}\n"
-	loader := NewLoader()
+	loader := NewWdlV1Loader()
 	validator := NewSemanticValidator(SemanticValidatorConfig{})
 	_, err := loader.LoadString(context.Background(), src, WithResolver(nil), WithValidator(validator))
 	if err == nil {
@@ -83,7 +83,7 @@ func TestSemanticValidatorRejectsDuplicateImportNamespaceAliases(t *testing.T) {
 
 func TestLintingValidatorReportsDeprecatedFileImportURI(t *testing.T) {
 	src := "version 1.3\nimport \"file:///tmp/lib.wdl\" as lib\nworkflow wf {}\n"
-	loader := NewLoader()
+	loader := NewWdlV1Loader()
 	validator := NewLintingValidator(SemanticValidatorConfig{ThrowOnWarnings: true})
 	_, err := loader.LoadString(context.Background(), src, WithResolver(nil), WithValidator(validator))
 	if err == nil {

@@ -49,6 +49,8 @@ import {
 } from '../statements/index.js';
 import {
   WdlArrayType,
+  inferEnumValueType,
+  inferLiteralExpressionType,
   WdlMapType,
   WdlPairType,
   WdlPrimitiveType,
@@ -96,6 +98,8 @@ export class WdlSemanticValidator extends WdlProcessorBase {
   protected taskContracts = new Map<string, TaskContract>();
   protected structMembers = new Map<string, Set<string>>();
   protected structMemberTypes = new Map<string, Map<string, WdlType | undefined>>();
+  protected enumValueTypes = new Map<string, WdlType | undefined>();
+  protected enumChoiceNames = new Map<string, Set<string>>();
   protected scopeTypes = new Map<string, WdlType | undefined>();
   protected scopeValues = new Map<string, unknown>();
   protected callOutputs = new Map<string, Set<string>>();
@@ -151,6 +155,8 @@ export class WdlSemanticValidator extends WdlProcessorBase {
     this.taskContracts.clear();
     this.structMembers.clear();
     this.structMemberTypes.clear();
+    this.enumValueTypes.clear();
+    this.enumChoiceNames.clear();
 
     for (const element of document.elements()) {
       if (element instanceof WdlTask) {
@@ -184,6 +190,22 @@ export class WdlSemanticValidator extends WdlProcessorBase {
         }
         this.structMembers.set(structName, members);
         this.structMemberTypes.set(structName, memberTypes);
+      } else if (element instanceof WdlEnum) {
+        const enumName = element.getName();
+        if (!enumName) continue;
+        this.enumValueTypes.set(
+          enumName,
+          inferEnumValueType(element) ?? new WdlPrimitiveType(WdlPrimitiveType.Type.STRING),
+        );
+        this.enumChoiceNames.set(
+          enumName,
+          new Set(
+            element
+              .elements()
+              .map((choice) => choice.getKey())
+              .filter((name): name is string => Boolean(name && name.trim())),
+          ),
+        );
       }
     }
 
@@ -511,8 +533,8 @@ export class WdlSemanticValidator extends WdlProcessorBase {
         this.structMemberTypes.set(visibleName, memberTypes);
       }
 
-      const visibleEnumNames = this.visibleImportedEnumNames(imp, importedDocument);
-      for (const visibleName of visibleEnumNames) {
+      const visibleEnums = this.visibleImportedEnums(imp, importedDocument);
+      for (const [visibleName, enumDef] of visibleEnums.entries()) {
         if (seenImportedTypes.has(visibleName)) {
           this.addError(
             WdlSemanticErrorCode.DUPLICATE_DEFINITION,
@@ -526,12 +548,19 @@ export class WdlSemanticValidator extends WdlProcessorBase {
             `Imported type '${visibleName}' conflicts with local definition`,
           );
         }
-        if (!this.structMembers.has(visibleName)) {
-          this.structMembers.set(visibleName, new Set());
-        }
-        if (!this.structMemberTypes.has(visibleName)) {
-          this.structMemberTypes.set(visibleName, new Map());
-        }
+        this.enumValueTypes.set(
+          visibleName,
+          inferEnumValueType(enumDef) ?? new WdlPrimitiveType(WdlPrimitiveType.Type.STRING),
+        );
+        this.enumChoiceNames.set(
+          visibleName,
+          new Set(
+            enumDef
+              .elements()
+              .map((choice) => choice.getKey())
+              .filter((name): name is string => Boolean(name && name.trim())),
+          ),
+        );
       }
     }
   }
@@ -627,8 +656,11 @@ export class WdlSemanticValidator extends WdlProcessorBase {
     return visible;
   }
 
-  protected visibleImportedEnumNames(imp: WdlImport, importedDocument: WdlDocument): Set<string> {
-    const visible = new Set<string>();
+  protected visibleImportedEnums(
+    imp: WdlImport,
+    importedDocument: WdlDocument,
+  ): Map<string, WdlEnum> {
+    const visible = new Map<string, WdlEnum>();
     const enums = importedDocument.enums();
 
     if (imp instanceof WdlImportStandard) {
@@ -641,7 +673,7 @@ export class WdlSemanticValidator extends WdlProcessorBase {
       for (const enumDef of enums) {
         const name = enumDef.getName();
         if (!name) continue;
-        visible.add(aliases.get(name) ?? name);
+        visible.set(aliases.get(name) ?? name, enumDef);
       }
       return visible;
     }
@@ -649,7 +681,7 @@ export class WdlSemanticValidator extends WdlProcessorBase {
     if (imp instanceof WdlImportStar) {
       for (const enumDef of enums) {
         const name = enumDef.getName();
-        if (name) visible.add(name);
+        if (name) visible.set(name, enumDef);
       }
       return visible;
     }
@@ -660,7 +692,7 @@ export class WdlSemanticValidator extends WdlProcessorBase {
         if (!memberName) continue;
         const enumDef = enums.find((entry) => entry.getName() === memberName);
         if (!enumDef) continue;
-        visible.add(member.getAlias() || memberName);
+        visible.set(member.getAlias() || memberName, enumDef);
       }
     }
     return visible;
@@ -896,6 +928,19 @@ export class WdlSemanticValidator extends WdlProcessorBase {
 
   protected inferType(expr: WdlExpression | undefined): WdlType | undefined {
     if (!expr) return undefined;
+    if (
+      expr instanceof WdlIntLiteral ||
+      expr instanceof WdlFloatLiteral ||
+      expr instanceof WdlBooleanLiteral ||
+      expr instanceof WdlStringLiteral ||
+      expr instanceof WdlObjectLiteral ||
+      expr instanceof WdlStructLiteral ||
+      expr instanceof WdlNullLiteral
+    ) {
+      const literalType = inferLiteralExpressionType(expr);
+      if (literalType) return literalType;
+      if (expr instanceof WdlStructLiteral) return new WdlTypeReferenceType('Object');
+    }
     if (expr instanceof WdlIntLiteral) return new WdlPrimitiveType(WdlPrimitiveType.Type.INT);
     if (expr instanceof WdlFloatLiteral) return new WdlPrimitiveType(WdlPrimitiveType.Type.FLOAT);
     if (expr instanceof WdlBooleanLiteral)
@@ -1129,6 +1174,14 @@ export class WdlSemanticValidator extends WdlProcessorBase {
       );
     }
 
+    if (this.isEnumTypeReference(expected)) {
+      const evaluated = this.evaluate(expr);
+      if (typeof evaluated === 'string') {
+        const choices = this.enumChoiceNames.get(this.typeReferenceName(expected));
+        if (choices && choices.size > 0) return choices.has(evaluated);
+      }
+    }
+
     const actual = this.inferType(expr);
     if (!actual) return true;
     return this.isTypeAssignable(expected, actual);
@@ -1181,10 +1234,49 @@ export class WdlSemanticValidator extends WdlProcessorBase {
         this.isPrimitive(actual, WdlPrimitiveType.Type.INT)
       )
         return true;
+      if (
+        this.isPrimitive(expected, WdlPrimitiveType.Type.FILE) &&
+        this.isPrimitive(actual, WdlPrimitiveType.Type.STRING)
+      )
+        return true;
+      if (
+        this.isPrimitive(expected, WdlPrimitiveType.Type.DIRECTORY) &&
+        this.isPrimitive(actual, WdlPrimitiveType.Type.STRING)
+      )
+        return true;
+      if (
+        this.isPrimitive(expected, WdlPrimitiveType.Type.STRING) &&
+        this.isEnumTypeReference(actual)
+      )
+        return true;
+      if (
+        this.isEnumTypeReference(expected) &&
+        this.isPrimitive(actual, WdlPrimitiveType.Type.STRING)
+      )
+        return true;
+      if (expected instanceof WdlMapType && this.isStructTypeReference(actual)) {
+        const members = this.structMemberTypes.get(this.typeReferenceName(actual));
+        if (!members || members.size === 0) return false;
+        for (const memberType of members.values()) {
+          if (!this.isTypeAssignable(expected.valueType(), memberType)) return false;
+        }
+        return true;
+      }
       return false;
     }
-    if (expected instanceof WdlPrimitiveType && actual instanceof WdlPrimitiveType)
+    if (expected instanceof WdlPrimitiveType && actual instanceof WdlPrimitiveType) {
+      if (
+        expected.primitiveType() === WdlPrimitiveType.Type.FILE &&
+        actual.primitiveType() === WdlPrimitiveType.Type.STRING
+      )
+        return true;
+      if (
+        expected.primitiveType() === WdlPrimitiveType.Type.DIRECTORY &&
+        actual.primitiveType() === WdlPrimitiveType.Type.STRING
+      )
+        return true;
       return expected.primitiveType() === actual.primitiveType();
+    }
     if (expected instanceof WdlArrayType && actual instanceof WdlArrayType)
       return this.isTypeAssignable(expected.memberType(), actual.memberType());
     if (expected instanceof WdlMapType && actual instanceof WdlMapType)
@@ -1197,8 +1289,74 @@ export class WdlSemanticValidator extends WdlProcessorBase {
         this.isTypeAssignable(expected.leftType(), actual.leftType()) &&
         this.isTypeAssignable(expected.rightType(), actual.rightType())
       );
-    if (expected instanceof WdlTypeReferenceType && actual instanceof WdlTypeReferenceType)
-      return expected.referenceName() === actual.referenceName();
+    if (expected instanceof WdlTypeReferenceType && actual instanceof WdlTypeReferenceType) {
+      if (expected.referenceName() === actual.referenceName()) return true;
+      if (this.isStructTypeReference(expected) && this.isStructTypeReference(actual)) {
+        return this.areStructReferencesCompatible(
+          expected.referenceName(),
+          actual.referenceName(),
+          new Set<string>(),
+        );
+      }
+      return false;
+    }
+    return true;
+  }
+
+  protected isEnumTypeReference(type: WdlType | undefined): boolean {
+    return (
+      type instanceof WdlTypeReferenceType && this.enumValueTypes.has(this.typeReferenceName(type))
+    );
+  }
+
+  protected isStructTypeReference(type: WdlType | undefined): boolean {
+    return (
+      type instanceof WdlTypeReferenceType &&
+      this.structMemberTypes.has(this.typeReferenceName(type))
+    );
+  }
+
+  protected typeReferenceName(type: WdlType | undefined): string {
+    if (!(type instanceof WdlTypeReferenceType)) return '';
+    return type.referenceName();
+  }
+
+  protected areStructReferencesCompatible(
+    expectedStructName: string | undefined,
+    actualStructName: string | undefined,
+    visitingPairs: Set<string>,
+  ): boolean {
+    if (expectedStructName === actualStructName) return true;
+    if (!expectedStructName || !actualStructName) return false;
+
+    const pairKey = `${expectedStructName}<=${actualStructName}`;
+    if (visitingPairs.has(pairKey)) return true;
+    visitingPairs.add(pairKey);
+
+    const expectedMembers = this.structMemberTypes.get(expectedStructName);
+    const actualMembers = this.structMemberTypes.get(actualStructName);
+    if (!expectedMembers || !actualMembers) return false;
+
+    for (const [memberName, expectedMemberType] of expectedMembers.entries()) {
+      if (!actualMembers.has(memberName)) return false;
+      const actualMemberType = actualMembers.get(memberName);
+      if (
+        this.isStructTypeReference(expectedMemberType) &&
+        this.isStructTypeReference(actualMemberType)
+      ) {
+        if (
+          !this.areStructReferencesCompatible(
+            this.typeReferenceName(expectedMemberType),
+            this.typeReferenceName(actualMemberType),
+            visitingPairs,
+          )
+        )
+          return false;
+        continue;
+      }
+      if (!this.isTypeAssignable(expectedMemberType, actualMemberType)) return false;
+    }
+
     return true;
   }
 

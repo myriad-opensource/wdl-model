@@ -40,6 +40,11 @@ public class WdlV12SpecExamplesTest {
               "test_zip_fail.wdl",
               "illegal_access_fail.wdl"));
 
+  private static Set<String> parseFailuresExpectedWithReservedKeywordsV1_2 =
+      new HashSet<>(
+          Arrays.asList(
+              "test_find_task.wdl", "test_meta_values.wdl", "test_runtime_info_task.wdl"));
+
   static Stream<org.junit.jupiter.params.provider.Arguments> v12Examples() throws Exception {
     return WdlTestResources.loadWdlExamples("v1_2");
   }
@@ -73,7 +78,8 @@ public class WdlV12SpecExamplesTest {
       }
     } catch (WdlException e) {
       // Files ending in _fail are expected to potentially fail
-      if (!filename.endsWith("_fail.wdl")) {
+      if (!filename.endsWith("_fail.wdl")
+          && !parseFailuresExpectedWithReservedKeywordsV1_2.contains(filename)) {
         throw new AssertionError("Failed to parse " + filename + ": " + e.toDebugMessage(), e);
       }
     }

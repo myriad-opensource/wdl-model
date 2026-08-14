@@ -1,14 +1,13 @@
 """Public Python entry points for the WDL model library.
 
-Import from this module when you want the root document model, the WDL loader, version metadata,
-or one of the optional validation layers.
+Import from this module when you want the root document model, the WDL
+loader, version metadata, or one of the optional validation layers.
 """
 
 from .wdl_document import WdlDocument, WdlDocumentElement
-from .wdl_v1_loader import WdlV1Loader
+from .wdl_v1_loader import WdlV1Loader, WdlValidator
 from .wdl_version import WdlVersion
 from .resolvers import (
-    WdlImportResolver,
     WdlImportResolverBase,
     WdlImportResolverFilesystem,
     WdlImportResolverHttpx,
@@ -25,9 +24,9 @@ __all__ = [
     "WdlStaticAnalysisSemanticValidator",
     "WdlSemanticValidator",
     "WdlV1Loader",
+    "WdlValidator",
     "WdlVersion",
     "WdlLintingSemanticValidator",
-    "WdlImportResolver",
     "WdlImportResolverBase",
     "WdlImportResolverHttpx",
     "WdlImportResolverFilesystem",

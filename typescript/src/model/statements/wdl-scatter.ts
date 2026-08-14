@@ -1,11 +1,13 @@
 /** Scatter statement nodes. */
 import type { WdlWorkflowElement } from '../definitions/wdl-workflow.js';
 import type { WdlExpression } from '../expressions/wdl-expression.js';
+import type { WdlSourceRange } from '../base/wdl-source-range.js';
 import { WdlStatementComponentType, type WdlStatement } from './wdl-statement.js';
 
 /** Models a WDL `scatter (x in xs) { ... }` statement. */
 export class WdlScatter implements WdlStatement, WdlWorkflowElement {
   private readonly statementValues: WdlStatement[] = [];
+  private sourceRangeValue: WdlSourceRange | undefined;
 
   /** Creates a scatter from its loop variable name and collection expression. */
   public constructor(
@@ -32,6 +34,14 @@ export class WdlScatter implements WdlStatement, WdlWorkflowElement {
   /** Returns the ordered nested statements inside the scatter body. */
   public statements(): WdlStatement[] {
     return this.statementValues;
+  }
+  /** Returns the source range of this scatter in the document, if set. */
+  public getSourceRange(): WdlSourceRange | undefined {
+    return this.sourceRangeValue;
+  }
+  /** Sets the source range of this scatter. */
+  public setSourceRange(range: WdlSourceRange | undefined): void {
+    this.sourceRangeValue = range;
   }
   /** Returns the broad statement family for this node. */
   public componentType(): WdlStatementComponentType {

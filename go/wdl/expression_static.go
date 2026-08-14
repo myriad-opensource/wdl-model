@@ -48,10 +48,18 @@ type staticType struct {
 	right    *staticType
 }
 
+var staticStructMemberTypes = map[string]map[string]staticType{}
+
 func expressionStaticDiagnostics(root grammar.IDocumentContext, version Version) []Diagnostic {
 	if root == nil {
 		return nil
 	}
+	previousStructTypes := staticStructMemberTypes
+	staticStructMemberTypes = collectStructMemberTypes(root)
+	defer func() {
+		staticStructMemberTypes = previousStructTypes
+	}()
+
 	diagnostics := make([]Diagnostic, 0)
 	for _, element := range root.AllDocumentElement() {
 		workflow := element.WorkflowDefinition()
@@ -61,6 +69,38 @@ func expressionStaticDiagnostics(root grammar.IDocumentContext, version Version)
 		diagnostics = append(diagnostics, validateWorkflowExpressions(workflow, version)...)
 	}
 	return diagnostics
+}
+
+func collectStructMemberTypes(root grammar.IDocumentContext) map[string]map[string]staticType {
+	out := map[string]map[string]staticType{}
+	if root == nil {
+		return out
+	}
+	for _, element := range root.AllDocumentElement() {
+		structDef := element.StructDefinition()
+		if structDef == nil {
+			continue
+		}
+		structName := strictIdentifierText(structDef.StrictIdentifier())
+		if structName == "" {
+			continue
+		}
+		memberTypes := map[string]staticType{}
+		for _, item := range structDef.AllStructItem() {
+			memberCtx, ok := item.(*grammar.StructItemMemberDeclarationContext)
+			if !ok || memberCtx.StructDeclaration() == nil {
+				continue
+			}
+			member := memberCtx.StructDeclaration()
+			memberName := strictIdentifierText(member.StrictIdentifier())
+			if memberName == "" {
+				continue
+			}
+			memberTypes[memberName] = typeFromContext(member.Type_())
+		}
+		out[structName] = memberTypes
+	}
+	return out
 }
 
 // validateWorkflowExpressions applies expression checks to workflow content.
@@ -199,19 +239,41 @@ func inferExpressionType(expr grammar.IExpressionContext, scope map[string]stati
 	return inferLogicalOrExpression(expr.LogicalOrExpression(), scope, version)
 }
 
+func collectBinaryOperatorSymbols(ctx antlr.ParserRuleContext) []string {
+	children := ctx.GetChildren()
+	if len(children) < 3 {
+		return nil
+	}
+	symbols := make([]string, 0, len(children)/2)
+	for i := 1; i < len(children); i += 2 {
+		if textNode, ok := children[i].(antlr.ParseTree); ok {
+			symbols = append(symbols, textNode.GetText())
+		}
+	}
+	return symbols
+}
+
 func inferLogicalOrExpression(expr grammar.ILogicalOrExpressionContext, scope map[string]staticType, version Version) (staticType, []Diagnostic) {
 	switch e := expr.(type) {
-	case *grammar.LogicalOrExprNoneContext:
-		return inferLogicalAndExpression(e.LogicalAndExpression(), scope, version)
 	case *grammar.LogicalOrExprOperationContext:
-		left, leftD := inferLogicalAndExpression(e.LogicalAndExpression(), scope, version)
-		right, rightD := inferLogicalOrExpression(e.LogicalOrExpression(), scope, version)
-		diagnostics := append(leftD, rightD...)
-		if left.kind != staticTypeUnknown && left.kind != staticTypeBoolean {
-			diagnostics = append(diagnostics, semanticTypeError(e, "logical operator requires Boolean operands"))
+		operands := e.AllLogicalAndExpression()
+		if len(operands) == 0 {
+			return staticType{kind: staticTypeUnknown}, nil
 		}
-		if right.kind != staticTypeUnknown && right.kind != staticTypeBoolean {
-			diagnostics = append(diagnostics, semanticTypeError(e, "logical operator requires Boolean operands"))
+		left, diagnostics := inferLogicalAndExpression(operands[0], scope, version)
+		if len(operands) == 1 {
+			return left, diagnostics
+		}
+		for i := 1; i < len(operands); i++ {
+			right, rightD := inferLogicalAndExpression(operands[i], scope, version)
+			diagnostics = append(diagnostics, rightD...)
+			if left.kind != staticTypeUnknown && left.kind != staticTypeBoolean {
+				diagnostics = append(diagnostics, semanticTypeError(e, "logical operator requires Boolean operands"))
+			}
+			if right.kind != staticTypeUnknown && right.kind != staticTypeBoolean {
+				diagnostics = append(diagnostics, semanticTypeError(e, "logical operator requires Boolean operands"))
+			}
+			left = staticType{kind: staticTypeBoolean}
 		}
 		return staticType{kind: staticTypeBoolean}, diagnostics
 	default:
@@ -221,17 +283,25 @@ func inferLogicalOrExpression(expr grammar.ILogicalOrExpressionContext, scope ma
 
 func inferLogicalAndExpression(expr grammar.ILogicalAndExpressionContext, scope map[string]staticType, version Version) (staticType, []Diagnostic) {
 	switch e := expr.(type) {
-	case *grammar.LogicalAndExprNoneContext:
-		return inferEqualityExpression(e.EqualityExpression(), scope, version)
 	case *grammar.LogicalAndExprOperationContext:
-		left, leftD := inferEqualityExpression(e.EqualityExpression(), scope, version)
-		right, rightD := inferLogicalAndExpression(e.LogicalAndExpression(), scope, version)
-		diagnostics := append(leftD, rightD...)
-		if left.kind != staticTypeUnknown && left.kind != staticTypeBoolean {
-			diagnostics = append(diagnostics, semanticTypeError(e, "logical operator requires Boolean operands"))
+		operands := e.AllEqualityExpression()
+		if len(operands) == 0 {
+			return staticType{kind: staticTypeUnknown}, nil
 		}
-		if right.kind != staticTypeUnknown && right.kind != staticTypeBoolean {
-			diagnostics = append(diagnostics, semanticTypeError(e, "logical operator requires Boolean operands"))
+		left, diagnostics := inferEqualityExpression(operands[0], scope, version)
+		if len(operands) == 1 {
+			return left, diagnostics
+		}
+		for i := 1; i < len(operands); i++ {
+			right, rightD := inferEqualityExpression(operands[i], scope, version)
+			diagnostics = append(diagnostics, rightD...)
+			if left.kind != staticTypeUnknown && left.kind != staticTypeBoolean {
+				diagnostics = append(diagnostics, semanticTypeError(e, "logical operator requires Boolean operands"))
+			}
+			if right.kind != staticTypeUnknown && right.kind != staticTypeBoolean {
+				diagnostics = append(diagnostics, semanticTypeError(e, "logical operator requires Boolean operands"))
+			}
+			left = staticType{kind: staticTypeBoolean}
 		}
 		return staticType{kind: staticTypeBoolean}, diagnostics
 	default:
@@ -241,14 +311,22 @@ func inferLogicalAndExpression(expr grammar.ILogicalAndExpressionContext, scope 
 
 func inferEqualityExpression(expr grammar.IEqualityExpressionContext, scope map[string]staticType, version Version) (staticType, []Diagnostic) {
 	switch e := expr.(type) {
-	case *grammar.EqualityExprNoneContext:
-		return inferComparisonExpression(e.ComparisonExpression(), scope, version)
 	case *grammar.EqualityExprOperationContext:
-		left, leftD := inferComparisonExpression(e.ComparisonExpression(), scope, version)
-		right, rightD := inferEqualityExpression(e.EqualityExpression(), scope, version)
-		diagnostics := append(leftD, rightD...)
-		if left.kind != staticTypeUnknown && right.kind != staticTypeUnknown && !areComparableForEquality(left, right) {
-			diagnostics = append(diagnostics, semanticTypeError(e, "equality comparison requires compatible operand types"))
+		operands := e.AllComparisonExpression()
+		if len(operands) == 0 {
+			return staticType{kind: staticTypeUnknown}, nil
+		}
+		left, diagnostics := inferComparisonExpression(operands[0], scope, version)
+		if len(operands) == 1 {
+			return left, diagnostics
+		}
+		for i := 1; i < len(operands); i++ {
+			right, rightD := inferComparisonExpression(operands[i], scope, version)
+			diagnostics = append(diagnostics, rightD...)
+			if left.kind != staticTypeUnknown && right.kind != staticTypeUnknown && !areComparableForEquality(left, right) {
+				diagnostics = append(diagnostics, semanticTypeError(e, "equality comparison requires compatible operand types"))
+			}
+			left = staticType{kind: staticTypeBoolean}
 		}
 		return staticType{kind: staticTypeBoolean}, diagnostics
 	default:
@@ -258,16 +336,24 @@ func inferEqualityExpression(expr grammar.IEqualityExpressionContext, scope map[
 
 func inferComparisonExpression(expr grammar.IComparisonExpressionContext, scope map[string]staticType, version Version) (staticType, []Diagnostic) {
 	switch e := expr.(type) {
-	case *grammar.ComparisonExprNoneContext:
-		return inferAdditiveExpression(e.AdditiveExpression(), scope, version)
 	case *grammar.ComparisonExprOperationContext:
-		left, leftD := inferAdditiveExpression(e.AdditiveExpression(), scope, version)
-		right, rightD := inferComparisonExpression(e.ComparisonExpression(), scope, version)
-		diagnostics := append(leftD, rightD...)
-		if left.kind != staticTypeUnknown && right.kind != staticTypeUnknown {
-			if !isOrderablePrimitive(left) || !isOrderablePrimitive(right) || !areComparableForEquality(left, right) {
-				diagnostics = append(diagnostics, semanticTypeError(e, "order comparison requires orderable primitive operands"))
+		operands := e.AllAdditiveExpression()
+		if len(operands) == 0 {
+			return staticType{kind: staticTypeUnknown}, nil
+		}
+		left, diagnostics := inferAdditiveExpression(operands[0], scope, version)
+		if len(operands) == 1 {
+			return left, diagnostics
+		}
+		for i := 1; i < len(operands); i++ {
+			right, rightD := inferAdditiveExpression(operands[i], scope, version)
+			diagnostics = append(diagnostics, rightD...)
+			if left.kind != staticTypeUnknown && right.kind != staticTypeUnknown {
+				if !isOrderablePrimitive(left) || !isOrderablePrimitive(right) || !areComparableForEquality(left, right) {
+					diagnostics = append(diagnostics, semanticTypeError(e, "order comparison requires orderable primitive operands"))
+				}
 			}
+			left = staticType{kind: staticTypeBoolean}
 		}
 		return staticType{kind: staticTypeBoolean}, diagnostics
 	default:
@@ -277,26 +363,38 @@ func inferComparisonExpression(expr grammar.IComparisonExpressionContext, scope 
 
 func inferAdditiveExpression(expr grammar.IAdditiveExpressionContext, scope map[string]staticType, version Version) (staticType, []Diagnostic) {
 	switch e := expr.(type) {
-	case *grammar.AdditiveExprNoneContext:
-		return inferMultiplicativeExpression(e.MultiplicativeExpression(), scope, version)
 	case *grammar.AdditiveExprOperationContext:
-		left, leftD := inferMultiplicativeExpression(e.MultiplicativeExpression(), scope, version)
-		right, rightD := inferAdditiveExpression(e.AdditiveExpression(), scope, version)
-		diagnostics := append(leftD, rightD...)
-		if e.MINUS() != nil {
-			if !isNumeric(left) || !isNumeric(right) {
-				diagnostics = append(diagnostics, semanticTypeError(e, "numeric operator requires numeric operands"))
+		operands := e.AllMultiplicativeExpression()
+		if len(operands) == 0 {
+			return staticType{kind: staticTypeUnknown}, nil
+		}
+		operators := collectBinaryOperatorSymbols(e)
+		left, diagnostics := inferMultiplicativeExpression(operands[0], scope, version)
+		for i := 1; i < len(operands); i++ {
+			right, rightD := inferMultiplicativeExpression(operands[i], scope, version)
+			diagnostics = append(diagnostics, rightD...)
+			op := operators[i-1]
+			if op == "-" {
+				if !isNumeric(left) || !isNumeric(right) {
+					diagnostics = append(diagnostics, semanticTypeError(e, "numeric operator requires numeric operands"))
+					left = staticType{kind: staticTypeUnknown}
+				} else {
+					left = numericResultType(left, right)
+				}
+				continue
 			}
-			return numericResultType(left, right), diagnostics
+			if isNumeric(left) && isNumeric(right) {
+				left = numericResultType(left, right)
+				continue
+			}
+			if left.kind == staticTypeString && right.kind == staticTypeString {
+				left = staticType{kind: staticTypeString}
+				continue
+			}
+			diagnostics = append(diagnostics, semanticTypeError(e, "additive operator requires numeric or String operands"))
+			left = staticType{kind: staticTypeUnknown}
 		}
-		if isNumeric(left) && isNumeric(right) {
-			return numericResultType(left, right), diagnostics
-		}
-		if left.kind == staticTypeString && right.kind == staticTypeString {
-			return staticType{kind: staticTypeString}, diagnostics
-		}
-		diagnostics = append(diagnostics, semanticTypeError(e, "additive operator requires numeric or String operands"))
-		return staticType{kind: staticTypeUnknown}, diagnostics
+		return left, diagnostics
 	default:
 		return staticType{kind: staticTypeUnknown}, nil
 	}
@@ -304,16 +402,23 @@ func inferAdditiveExpression(expr grammar.IAdditiveExpressionContext, scope map[
 
 func inferMultiplicativeExpression(expr grammar.IMultiplicativeExpressionContext, scope map[string]staticType, version Version) (staticType, []Diagnostic) {
 	switch e := expr.(type) {
-	case *grammar.MultiplicativeExprNoneContext:
-		return inferPowerExpression(e.PowerExpression(), scope, version)
 	case *grammar.MultiplicativeExprOperationContext:
-		left, leftD := inferPowerExpression(e.PowerExpression(), scope, version)
-		right, rightD := inferMultiplicativeExpression(e.MultiplicativeExpression(), scope, version)
-		diagnostics := append(leftD, rightD...)
-		if !isNumeric(left) || !isNumeric(right) {
-			diagnostics = append(diagnostics, semanticTypeError(e, "numeric operator requires numeric operands"))
+		operands := e.AllPowerExpression()
+		if len(operands) == 0 {
+			return staticType{kind: staticTypeUnknown}, nil
 		}
-		return numericResultType(left, right), diagnostics
+		left, diagnostics := inferPowerExpression(operands[0], scope, version)
+		for i := 1; i < len(operands); i++ {
+			right, rightD := inferPowerExpression(operands[i], scope, version)
+			diagnostics = append(diagnostics, rightD...)
+			if !isNumeric(left) || !isNumeric(right) {
+				diagnostics = append(diagnostics, semanticTypeError(e, "numeric operator requires numeric operands"))
+				left = staticType{kind: staticTypeUnknown}
+			} else {
+				left = numericResultType(left, right)
+			}
+		}
+		return left, diagnostics
 	default:
 		return staticType{kind: staticTypeUnknown}, nil
 	}
@@ -456,6 +561,10 @@ func inferPrimaryExpression(expr grammar.IPrimaryExpressionContext, scope map[st
 	}
 
 	if expr.StructLiteral() != nil {
+		name := strictIdentifierText(expr.StructLiteral().StrictIdentifier())
+		if name != "" {
+			return staticType{kind: staticTypeRef, name: name}, nil
+		}
 		return staticType{kind: staticTypeObject}, nil
 	}
 	if expr.ObjectLiteral() != nil {
@@ -708,6 +817,9 @@ func isAssignable(expected staticType, actual staticType) bool {
 	if expected.kind == staticTypeFloat && actual.kind == staticTypeInt {
 		return true
 	}
+	if (expected.kind == staticTypeFile || expected.kind == staticTypeDir) && actual.kind == staticTypeString {
+		return true
+	}
 	if expected.kind != actual.kind {
 		return false
 	}
@@ -728,10 +840,51 @@ func isAssignable(expected staticType, actual staticType) bool {
 		}
 		return isAssignable(*expected.left, *actual.left) && isAssignable(*expected.right, *actual.right)
 	case staticTypeRef:
-		return expected.name == actual.name
+		if expected.name == actual.name {
+			return true
+		}
+		return areStructRefsCompatible(expected.name, actual.name, map[string]struct{}{})
 	default:
 		return true
 	}
+}
+
+func areStructRefsCompatible(expectedName string, actualName string, visiting map[string]struct{}) bool {
+	if expectedName == actualName {
+		return true
+	}
+	if expectedName == "" || actualName == "" {
+		return false
+	}
+	expectedMembers, expectedOK := staticStructMemberTypes[expectedName]
+	actualMembers, actualOK := staticStructMemberTypes[actualName]
+	if !expectedOK || !actualOK {
+		return false
+	}
+
+	pairKey := expectedName + "<=" + actualName
+	if _, seen := visiting[pairKey]; seen {
+		return true
+	}
+	visiting[pairKey] = struct{}{}
+
+	for memberName, expectedMemberType := range expectedMembers {
+		actualMemberType, ok := actualMembers[memberName]
+		if !ok {
+			return false
+		}
+		if expectedMemberType.kind == staticTypeRef && actualMemberType.kind == staticTypeRef {
+			if !areStructRefsCompatible(expectedMemberType.name, actualMemberType.name, visiting) {
+				return false
+			}
+			continue
+		}
+		if !isAssignable(expectedMemberType, actualMemberType) {
+			return false
+		}
+	}
+
+	return true
 }
 
 func areComparableForEquality(left staticType, right staticType) bool {

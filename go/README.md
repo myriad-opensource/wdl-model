@@ -41,6 +41,16 @@ Generated ANTLR parser code is isolated in a dedicated package:
 
 - `grammar/wdl1`
 
+Generated parser `.go` artifacts in that package are committed in this repo.
+This is required so module consumers (`go get`) can compile without running
+`go generate` on dependency modules.
+
+For maintainers:
+
+- Regenerate grammar bindings with `make generate`.
+- Use `make clean-grammar` only when you explicitly want to remove generated grammar artifacts.
+- `make publish-release` now verifies `go/grammar/wdl1` is clean after generation and fails if generated files are out of sync or untracked.
+
 Handwritten library APIs live in:
 
 - `wdl`
@@ -49,7 +59,7 @@ This follows the same generated-code split used in the Java, Python, and TypeScr
 
 ## Loading Files And Imports
 
-`wdl.Loader` is the entry point for parsing and import-aware document loading.
+`wdl.WdlV1Loader` is the entry point for parsing and import-aware document loading.
 
 - Imports are resolved recursively and attached to the root document through `ImportedDocs` and `ImportStatements`.
 - Resolution is delegated to `wdl.Resolver` implementations.
