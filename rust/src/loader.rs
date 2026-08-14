@@ -13,9 +13,12 @@ use std::rc::Rc;
 
 use antlr4rust::common_token_stream::CommonTokenStream;
 use antlr4rust::error_listener::ErrorListener;
+use antlr4rust::error_strategy::{DefaultErrorStrategy, ErrorStrategy};
+use antlr4rust::errors::ANTLRError;
 use antlr4rust::input_stream::InputStream;
+use antlr4rust::parser::ParserNodeType;
 use antlr4rust::tree::{ErrorNode, ParseTree, ParseTreeVisitor, TerminalNode, VisitableDyn};
-use antlr4rust::Parser;
+use antlr4rust::{tid, Parser};
 
 use crate::definitions::{
     WdlEnum, WdlEnumChoice, WdlStruct, WdlStructElement, WdlStructMember, WdlTask, WdlTaskElement,
@@ -182,6 +185,76 @@ impl<'a, T: antlr4rust::recognizer::Recognizer<'a>> ErrorListener<'a, T> for Wdl
 }
 
 // ============================================================================
+// Error strategy — works around an antlr4rust 0.5.2 bug (see
+// rust/.context/rust_parser_fix_plan.md Phase 1)
+// ============================================================================
+//
+// `DefaultErrorStrategy::sync()` gates its early-return decisions on
+// `IntervalSet::contains()`, which has a confirmed sortedness-invariant bug in
+// antlr4rust 0.5.2: it can return `false` for tokens that a linear scan of the
+// very same set (`IntervalSet::to_token_string()`) shows are present. Both the
+// context-free `ATN::next_tokens` set and the context-aware
+// `Parser::get_expected_tokens()` set go through this same buggy `contains()`,
+// so neither is safe to gate on — a "smarter" check that also calls `contains()`
+// would just be a different call into the same broken machinery.
+//
+// This surfaces as spurious syntax errors when a user-defined type name
+// (IDENTIFIER) appears as a struct field type or in a bound declaration's type
+// position — e.g. `struct Person { Address addr }` or
+// `workflow w { S s = S { x: 1 } }` — even though the grammar and the ANTLR4
+// ALL(*) prediction algorithm (`adaptive_predict`, a separate simulation not
+// affected by this bug) both correctly support these constructs.
+//
+// `sync()` exists purely as an optimistic pre-check ahead of the real decision
+// point; skipping it entirely (mirroring antlr4rust's own `BailErrorStrategy`,
+// which also no-ops recovery-related hooks) defers fully to `adaptive_predict`
+// and to ordinary token matching (`match_token`, a direct token-id equality
+// check, unaffected by `IntervalSet`) for detecting genuine errors. Every other
+// method delegates verbatim to `DefaultErrorStrategy`.
+struct WdlErrorStrategy<'input, Ctx: ParserNodeType<'input>>(DefaultErrorStrategy<'input, Ctx>);
+
+impl<'input, Ctx: ParserNodeType<'input>> WdlErrorStrategy<'input, Ctx> {
+    fn new() -> Self {
+        Self(DefaultErrorStrategy::new())
+    }
+}
+
+tid! { impl<'input, Ctx> TidAble<'input> for WdlErrorStrategy<'input, Ctx> where Ctx: ParserNodeType<'input> }
+
+impl<'input, T: Parser<'input>> ErrorStrategy<'input, T> for WdlErrorStrategy<'input, T::Node> {
+    fn reset(&mut self, recognizer: &mut T) {
+        self.0.reset(recognizer)
+    }
+
+    fn recover_inline(
+        &mut self,
+        recognizer: &mut T,
+    ) -> Result<<T::TF as antlr4rust::token_factory::TokenFactory<'input>>::Tok, ANTLRError> {
+        self.0.recover_inline(recognizer)
+    }
+
+    fn recover(&mut self, recognizer: &mut T, e: &ANTLRError) -> Result<(), ANTLRError> {
+        self.0.recover(recognizer, e)
+    }
+
+    fn sync(&mut self, _recognizer: &mut T) -> Result<(), ANTLRError> {
+        Ok(())
+    }
+
+    fn in_error_recovery_mode(&mut self, recognizer: &mut T) -> bool {
+        self.0.in_error_recovery_mode(recognizer)
+    }
+
+    fn report_error(&mut self, recognizer: &mut T, e: &ANTLRError) {
+        self.0.report_error(recognizer, e)
+    }
+
+    fn report_match(&mut self, recognizer: &mut T) {
+        self.0.report_match(recognizer)
+    }
+}
+
+// ============================================================================
 // Internal parse function
 // ============================================================================
 
@@ -194,7 +267,7 @@ fn parse_document(source: &str) -> Result<WdlDocument, WdlError> {
     lexer.add_error_listener(Box::new(WdlErrorListener::new(Rc::clone(&errors))));
 
     let token_stream = CommonTokenStream::new(lexer);
-    let mut parser = WdlV1Parser::new(token_stream);
+    let mut parser = WdlV1Parser::with_strategy(token_stream, Box::new(WdlErrorStrategy::new()));
     parser.remove_error_listeners();
     parser.add_error_listener(Box::new(WdlErrorListener::new(Rc::clone(&errors))));
 

@@ -215,6 +215,49 @@ Negative-case verification (mandatory):
 - Spot-check that genuinely malformed WDL (e.g. `workflow w { Int }`) still yields a
   syntax error with a sensible message, not a silent partial parse
 
+### Phase 2 result (DONE)
+
+Implemented exactly as above in `rust/src/loader.rs`: added `WdlErrorStrategy` (wraps
+`DefaultErrorStrategy`, no-ops `sync()`, delegates every other `ErrorStrategy` method
+verbatim), wired in via `WdlV1Parser::with_strategy(token_stream,
+Box::new(WdlErrorStrategy::new()))` replacing the old `WdlV1Parser::new(token_stream)`
+call in `parse_document()`.
+
+**Baseline before fix**: 5 failing tests across 4 binaries (`import_edge_cases_test`,
+`import_validation_test`, `non_runtime_completion_test` ×2, `validator_test`).
+
+**After fix**: 2 failing tests across 2 binaries — a net fix of 3 test failures, and
+both remaining failures are pre-existing, unrelated to parsing:
+
+| Binary | Test | Status |
+|---|---|---|
+| `import_edge_cases_test` | `accepts_mixed_forms_import` | **FIXED** |
+| `import_validation_test` | `accepts_import::case_1` (`standard_alias`) | **FIXED** |
+| `non_runtime_completion_test` | `accepts_static::case_4` (`member_index_checks_ok.wdl`) | **FIXED** |
+| `non_runtime_completion_test` | `accepts_import_alias_nested` | Still fails, but **root cause moved**: now parses correctly (confirmed — no more `mismatched input` syntax error) and fails *validation* instead: `WdlSemanticError { code: UnknownReference, message: "Unknown type reference 'PersonAlias' at 'p'" }`. `WdlStaticAnalysisValidator` doesn't resolve struct type aliases introduced via `import ... alias X as Y`. This is a **separate, pre-existing validator gap**, out of scope for this parser-focused plan — worth a follow-up ticket, not fixed here. |
+| `validator_test` | `test_accepts_simple_valid_workflow` | Still fails — the unrelated `LintUnusedWorkflowDeclaration` false-positive documented in Phase 0's baseline, untouched. |
+
+**Negative-case verification — all passed** (throwaway harness, deleted after use):
+- `workflow w { Int }` (missing declaration identifier) still correctly fails with
+  `mismatched input '}' expecting {..., IDENTIFIER}` — genuine syntax errors are still
+  caught; the no-op `sync()` did not make the parser silently permissive.
+- All 18 `_fail.wdl` fixtures under `wdl_tests/` were re-checked: none newly parse when
+  they shouldn't — all 18 "successfully parse" at the syntax level, which is *expected*
+  since every one of them is a semantic/type/runtime-level failure (not a grammar-level
+  one), matching `spec_validation_test.rs`'s existing documented design.
+- `spec_parse_test` passes (3/3, all versions, no panics) — confirmed via full suite run.
+- Bonus verification (not required, done anyway): re-parsed all 22 `PARSE_GAP` spec
+  files across v1_1/v1_2/v1_3 (`import_structs.wdl`, `map_to_struct2.wdl`,
+  `member_access.wdl`, `nested_access.wdl`, `pair_to_struct.wdl`,
+  `person_struct_task.wdl`, `struct_to_struct.wdl` (v1_2/v1_3 only), `test_struct.wdl`)
+  — **all 22 now parse successfully**, confirming Phase 3's `PARSE_GAP` skip-list removal
+  will be a clean no-op change with nothing left to skip.
+
+`cargo build`, `cargo clippy -- -D warnings`, and `rustfmt --check src/loader.rs` all
+clean — no new warnings; remaining clippy warnings and loader.rs formatting diffs are
+pre-existing and untouched by this change (verified via `git diff` that none of the
+formatting-diff hunks intersect the added code).
+
 ## Phase 3 — Validate against pristine fixtures
 
 | Step | Action |
