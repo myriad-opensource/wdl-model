@@ -1,6 +1,8 @@
 //! Tests for the Phase 4 processor layer.
 //!
-//! Mirrors Java's `WdlAppendingProcessorTest` and `WdlExpressionProcessorBaseTest`.
+//! Mirrors Java's `WdlAppendingProcessorTest`, `WdlExpressionProcessorBaseTest`,
+//! `WdlFunctionProcessorBaseTest`, `WdlProcessorBaseEnumInferenceTest`, and
+//! `WdlProcessorBaseImportResolutionTest`.
 
 use std::path::PathBuf;
 
@@ -263,4 +265,201 @@ fn type_to_wdl_basic() {
 
     let opt_t = WdlType::Primitive(WdlPrimitiveType::optional(WdlPrimitiveKind::String));
     assert_eq!(type_to_wdl(&opt_t), "String?");
+}
+
+// ---------------------------------------------------------------------------
+// WdlFunctionProcessorBaseTest — mirrors Java's WdlFunctionProcessorBaseTest
+// ---------------------------------------------------------------------------
+
+/// Mirrors Java `dispatchesToFunctionSpecificMethods`.
+#[test]
+fn dispatches_to_function_specific_methods() {
+    use wdl_model::expressions::WdlFunctionCallOperation;
+    use wdl_model::processors::function::WdlFunctionProcessor;
+
+    #[derive(Default)]
+    struct RecordingFunctionProcessor {
+        events: Vec<&'static str>,
+    }
+
+    impl WdlFunctionProcessor for RecordingFunctionProcessor {
+        fn process_floor(&mut self, _call: &WdlFunctionCallOperation) {
+            self.events.push("floor");
+        }
+
+        fn process_nonstandard(&mut self, _call: &WdlFunctionCallOperation) {
+            self.events.push("nonstandard");
+        }
+    }
+
+    let mut processor = RecordingFunctionProcessor::default();
+    processor.process_function_call(&WdlFunctionCallOperation::new("floor"));
+    processor.process_function_call(&WdlFunctionCallOperation::new("my_custom_function"));
+
+    assert_eq!(processor.events, vec!["floor", "nonstandard"]);
+}
+
+// ---------------------------------------------------------------------------
+// WdlProcessorBaseEnumInferenceTest — mirrors Java's
+// WdlProcessorBaseEnumInferenceTest
+// ---------------------------------------------------------------------------
+
+/// Mirrors Java `infersImplicitEnumTypeAsString`.
+#[test]
+fn infers_implicit_enum_type_as_string() {
+    use wdl_model::definitions::{WdlEnum, WdlEnumChoice};
+    use wdl_model::processors::base::infer_enum_value_type;
+    use wdl_model::types::{WdlPrimitiveKind, WdlType};
+
+    let mut en = WdlEnum::new("Letters");
+    en.elements.push(WdlEnumChoice::new("A"));
+    en.elements.push(WdlEnumChoice::new("B"));
+
+    let inferred = infer_enum_value_type(&en).expect("expected an inferred type");
+    match inferred {
+        WdlType::Primitive(p) => assert_eq!(p.primitive_kind, WdlPrimitiveKind::String),
+        other => panic!("expected Primitive(String), got {other:?}"),
+    }
+}
+
+/// Mirrors Java `widensIntAndFloatEnumChoicesToFloat`.
+#[test]
+fn widens_int_and_float_enum_choices_to_float() {
+    use wdl_model::definitions::{WdlEnum, WdlEnumChoice};
+    use wdl_model::processors::base::infer_enum_value_type;
+    use wdl_model::types::{WdlPrimitiveKind, WdlType};
+
+    let mut en = WdlEnum::new("Numbers");
+    en.elements
+        .push(WdlEnumChoice::with_value("ONE", WdlExpression::IntLit(1)));
+    en.elements
+        .push(WdlEnumChoice::with_value("PI", WdlExpression::FloatLit(3.14)));
+
+    let inferred = infer_enum_value_type(&en).expect("expected an inferred type");
+    match inferred {
+        WdlType::Primitive(p) => assert_eq!(p.primitive_kind, WdlPrimitiveKind::Float),
+        other => panic!("expected Primitive(Float), got {other:?}"),
+    }
+}
+
+/// Mirrors Java `returnsEmptyForIncompatibleEnumChoiceTypes`.
+#[test]
+fn returns_empty_for_incompatible_enum_choice_types() {
+    use wdl_model::definitions::{WdlEnum, WdlEnumChoice};
+    use wdl_model::expressions::WdlFunctionCallOperation;
+    use wdl_model::processors::base::infer_enum_value_type;
+
+    let mut en = WdlEnum::new("Bad");
+    en.elements
+        .push(WdlEnumChoice::with_value("ONE", WdlExpression::IntLit(1)));
+    en.elements.push(WdlEnumChoice::with_value(
+        "DYNAMIC",
+        WdlExpression::FuncOp(WdlFunctionCallOperation::new("foo")),
+    ));
+
+    assert!(infer_enum_value_type(&en).is_none());
+}
+
+/// Mirrors Java `supportsLocalStructAndEnumIntrospectionHelpers`.
+#[test]
+fn supports_local_struct_and_enum_introspection_helpers() {
+    use wdl_model::definitions::{
+        WdlEnum, WdlEnumChoice, WdlStruct, WdlStructElement, WdlStructMember,
+    };
+    use wdl_model::types::{WdlPrimitiveKind, WdlPrimitiveType, WdlType};
+
+    let mut structure = WdlStruct::new("Person");
+    structure.elements.push(WdlStructElement::Member(WdlStructMember::new(
+        WdlType::Primitive(WdlPrimitiveType::new(WdlPrimitiveKind::String)),
+        "name",
+    )));
+    structure.elements.push(WdlStructElement::Member(WdlStructMember::new(
+        WdlType::Primitive(WdlPrimitiveType::new(WdlPrimitiveKind::Int)),
+        "age",
+    )));
+
+    let mut en = WdlEnum::new("Status");
+    en.elements.push(WdlEnumChoice::new("NEW"));
+    en.elements.push(WdlEnumChoice::new("DONE"));
+
+    assert!(structure.has_member("name"));
+    assert!(!structure.has_member("missing"));
+    let age_type = structure.member_type("age").expect("age member should exist");
+    match age_type {
+        WdlType::Primitive(p) => assert_eq!(p.primitive_kind, WdlPrimitiveKind::Int),
+        other => panic!("expected Primitive(Int), got {other:?}"),
+    }
+
+    assert!(en.has_choice("DONE"));
+    assert!(!en.has_choice("FAILED"));
+    assert!(en.choice("NEW").is_some());
+}
+
+// ---------------------------------------------------------------------------
+// WdlProcessorBaseImportResolutionTest — mirrors Java's
+// WdlProcessorBaseImportResolutionTest
+// ---------------------------------------------------------------------------
+
+fn processor_imports_fixture(name: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .join("wdl_tests")
+        .join("processor_imports")
+        .join(name)
+}
+
+/// Mirrors Java `resolvesImportedCallTargetsAndTypesAcrossImportForms`.
+#[test]
+fn resolves_imported_call_targets_and_types_across_import_forms() {
+    use wdl_model::processors::base::{
+        resolve_imported_document, resolve_imported_enums, resolve_imported_structs,
+        resolve_imported_tasks, resolve_imported_workflows,
+    };
+
+    let root_doc = wdl_model::loader::load_from_path_with_resolver(
+        &processor_imports_fixture("root.wdl"),
+        &wdl_model::resolvers::FilesystemResolver,
+    )
+    .expect("load processor_imports/root.wdl");
+
+    let lib_tasks = resolve_imported_tasks(&root_doc, "lib.lib_task");
+    assert_eq!(lib_tasks.len(), 1);
+    assert_eq!(lib_tasks[0].import_namespace.as_deref(), Some("lib"));
+    assert_eq!(lib_tasks[0].imported_name, "lib_task");
+
+    let star_tasks = resolve_imported_tasks(&root_doc, "star_task");
+    assert_eq!(star_tasks.len(), 1);
+    assert_eq!(star_tasks[0].local_name, "star_task");
+
+    let member_tasks = resolve_imported_tasks(&root_doc, "local_task");
+    assert_eq!(member_tasks.len(), 1);
+    assert_eq!(member_tasks[0].imported_name, "selected_task");
+
+    let workflows = resolve_imported_workflows(&root_doc, "local_flow");
+    assert_eq!(workflows.len(), 1);
+    assert_eq!(workflows[0].imported_name, "selected_flow");
+
+    let aliased_structs = resolve_imported_structs(&root_doc, "Patient");
+    assert_eq!(aliased_structs.len(), 1);
+    assert_eq!(aliased_structs[0].imported_name, "Person");
+
+    let star_structs = resolve_imported_structs(&root_doc, "StarStruct");
+    assert_eq!(star_structs.len(), 1);
+
+    let member_structs = resolve_imported_structs(&root_doc, "LocalStruct");
+    assert_eq!(member_structs.len(), 1);
+    assert_eq!(member_structs[0].imported_name, "SelectedStruct");
+
+    let aliased_enums = resolve_imported_enums(&root_doc, "ImportStatus");
+    assert_eq!(aliased_enums.len(), 1);
+    assert_eq!(aliased_enums[0].imported_name, "Status");
+
+    let member_enums = resolve_imported_enums(&root_doc, "LocalEnum");
+    assert_eq!(member_enums.len(), 1);
+    assert_eq!(member_enums[0].imported_name, "SelectedEnum");
+
+    let imports: Vec<_> = root_doc.import_statements().collect();
+    assert!(!imports.is_empty());
+    assert!(resolve_imported_document(&root_doc, imports[0]).is_some());
 }

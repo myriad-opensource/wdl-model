@@ -381,6 +381,14 @@ impl ValidatorRunner {
                 WdlType::Primitive(a),
             ) if e.primitive_kind == PK::Float && a.primitive_kind == PK::Int => true,
 
+            // String → File / Directory coercion (WDL spec: string literals/values
+            // are assignable to File and Directory typed declarations).
+            (
+                WdlType::Primitive(e),
+                WdlType::Primitive(a),
+            ) if (e.primitive_kind == PK::File || e.primitive_kind == PK::Directory)
+                && a.primitive_kind == PK::String => true,
+
             // Optional expected: strip optional and re-check
             (e, a) if e.is_optional() && !a.is_optional() => {
                 let e2 = e.clone().with_optional(false);
@@ -405,9 +413,27 @@ impl ValidatorRunner {
                     && self.is_type_assignable(&e.right_type, &a.right_type)
             }
 
-            // TypeRef: same name
+            // TypeRef: same name, or structurally compatible structs (same
+            // member names, each with an assignable type — mirrors WDL's
+            // structural struct-to-struct coercion).
             (WdlType::TypeRef(e), WdlType::TypeRef(a)) => {
-                e.reference_name == a.reference_name
+                if e.reference_name == a.reference_name {
+                    return true;
+                }
+                match (
+                    self.struct_member_types.get(&e.reference_name),
+                    self.struct_member_types.get(&a.reference_name),
+                ) {
+                    (Some(expected_fields), Some(actual_fields)) => {
+                        expected_fields.len() == actual_fields.len()
+                            && expected_fields.iter().all(|(name, ty)| {
+                                actual_fields
+                                    .get(name)
+                                    .is_some_and(|at| self.is_type_assignable(ty, at))
+                            })
+                    }
+                    _ => false,
+                }
             }
 
             _ => false,

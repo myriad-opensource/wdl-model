@@ -123,6 +123,19 @@ impl WdlStruct {
             elements: Vec::new(),
         }
     }
+
+    /// Returns `true` if this struct declares a member with the given name.
+    pub fn has_member(&self, name: &str) -> bool {
+        self.member_type(name).is_some()
+    }
+
+    /// Returns the declared type of the member with the given name, if any.
+    pub fn member_type(&self, name: &str) -> Option<&WdlType> {
+        self.elements.iter().find_map(|e| match e {
+            WdlStructElement::Member(m) if m.name == name => Some(&m.wdl_type),
+            _ => None,
+        })
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -168,5 +181,15 @@ impl WdlEnum {
             value_type: None,
             elements: Vec::new(),
         }
+    }
+
+    /// Returns `true` if this enum declares a choice with the given name.
+    pub fn has_choice(&self, name: &str) -> bool {
+        self.choice(name).is_some()
+    }
+
+    /// Returns the choice with the given name, if any.
+    pub fn choice(&self, name: &str) -> Option<&WdlEnumChoice> {
+        self.elements.iter().find(|c| c.name == name)
     }
 }

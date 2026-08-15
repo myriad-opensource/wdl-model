@@ -8,7 +8,6 @@
 #![allow(non_snake_case)] // ANTLR visitor methods use camelCase
 
 use std::cell::RefCell;
-use std::collections::HashSet;
 use std::rc::Rc;
 
 use antlr4rust::common_token_stream::CommonTokenStream;
@@ -82,8 +81,23 @@ pub fn load_from_path_with_resolver(
             path.display().to_string(),
         )
     })?;
-    let mut seen: HashSet<String> = HashSet::new();
-    load_with_resolver_inner(&url, resolver, &mut seen)
+    let mut path_stack: Vec<String> = Vec::new();
+    load_with_resolver_inner(&url, resolver, &mut path_stack, None)
+}
+
+/// Parse `source` (already in memory — e.g. fetched over the network, or not
+/// yet written to disk) and recursively resolve all of its imports using
+/// `resolver`, treating `source_location` as the document's own canonical
+/// location for the purpose of resolving relative import paths.
+///
+/// Otherwise identical to [`load_from_path_with_resolver`].
+pub fn load_from_str_with_resolver(
+    source: &str,
+    source_location: &url::Url,
+    resolver: &dyn crate::resolvers::ImportResolver,
+) -> Result<WdlDocument, WdlError> {
+    let mut path_stack: Vec<String> = Vec::new();
+    load_with_resolver_inner(source_location, resolver, &mut path_stack, Some(source))
 }
 
 // ---------------------------------------------------------------------------
@@ -93,26 +107,41 @@ pub fn load_from_path_with_resolver(
 fn load_with_resolver_inner(
     doc_url: &url::Url,
     resolver: &dyn crate::resolvers::ImportResolver,
-    seen: &mut HashSet<String>,
+    path_stack: &mut Vec<String>,
+    preloaded_content: Option<&str>,
 ) -> Result<WdlDocument, WdlError> {
     let url_str = doc_url.to_string();
 
-    // Detect cycles — return an empty stub so the parent can continue.
-    if !seen.insert(url_str.clone()) {
-        return Ok(WdlDocument::new());
+    // Detect circular imports: if `doc_url` is already an ancestor on the
+    // current import path (not merely "loaded somewhere in the tree" — a
+    // diamond-shaped import graph, where two siblings import the same
+    // document, is legitimate and not a cycle), report the full cycle chain.
+    if let Some(pos) = path_stack.iter().position(|u| u == &url_str) {
+        let mut chain: Vec<&str> = path_stack[pos..].iter().map(String::as_str).collect();
+        chain.push(url_str.as_str());
+        return Err(WdlError::import(
+            format!("Circular import detected: {}", chain.join(" -> ")),
+            url_str,
+        ));
     }
+    path_stack.push(url_str.clone());
 
-    // Load source content.
-    let content = match doc_url.scheme() {
-        "file" => {
-            let path = doc_url.to_file_path().map_err(|_| {
-                WdlError::import("invalid file URL — cannot convert to path", &url_str)
-            })?;
-            std::fs::read_to_string(&path)?
-        }
-        _ => resolver
-            .resolve_import(None, doc_url.as_str())
-            .map_err(|e| WdlError::import(e.to_string(), doc_url.as_str()))?,
+    // Load source content — use the caller-provided in-memory source for the
+    // root document (if any), otherwise read/resolve it normally. Imports are
+    // always read/resolved normally, never pre-loaded.
+    let content = match preloaded_content {
+        Some(c) => c.to_owned(),
+        None => match doc_url.scheme() {
+            "file" => {
+                let path = doc_url.to_file_path().map_err(|_| {
+                    WdlError::import("invalid file URL — cannot convert to path", &url_str)
+                })?;
+                std::fs::read_to_string(&path)?
+            }
+            _ => resolver
+                .resolve_import(None, doc_url.as_str())
+                .map_err(|e| WdlError::import(e.to_string(), doc_url.as_str()))?,
+        },
     };
 
     let mut doc = parse_document(&content)?;
@@ -146,11 +175,12 @@ fn load_with_resolver_inner(
         // Recursively load the imported document (unless it was already inserted by a
         // sibling import that resolved to the same URL).
         if !doc.imported_documents.contains_key(&resolved_str) {
-            let imported = load_with_resolver_inner(&resolved_url, resolver, seen)?;
+            let imported = load_with_resolver_inner(&resolved_url, resolver, path_stack, None)?;
             doc.imported_documents.insert(resolved_str, imported);
         }
     }
 
+    path_stack.pop();
     Ok(doc)
 }
 
@@ -351,6 +381,62 @@ impl WdlV1Builder {
             stack: Vec::new(),
             document: WdlDocument::new(),
         }
+    }
+
+    /// Combines `left op right` into a left-associative `WdlBinaryOperation`.
+    ///
+    /// The grammar's binary-operator rules (`logicalOrExpression`,
+    /// `additiveExpression`, etc.) are right-recursive — e.g.
+    /// `additiveExpression : multiplicativeExpression (PLUS|MINUS)
+    /// additiveExpression | multiplicativeExpression` — so a naive
+    /// visitor that just nests `BinaryOp { left, op, right }` at each level
+    /// produces a *right*-associative tree: `1 - 2 - 3` would build as
+    /// `1 - (2 - 3)` (evaluating to `2`) instead of the WDL-spec-correct
+    /// left-associative `(1 - 2) - 3` (evaluating to `-4`).
+    ///
+    /// Since visitor calls happen bottom-up (post-order), by the time an
+    /// outer call reaches this helper, `right` is already a fully
+    /// left-associated chain for everything to its right. Re-associating one
+    /// more element onto the left just requires descending along `right`'s
+    /// left spine (recursively) until we're no longer looking at a
+    /// same-precedence-level binary op, inserting `left op <that node>`
+    /// there, and rebuilding the spine above it — see the worked example in
+    /// `rust_parser_fix_plan.md`'s phase 5 notes.
+    ///
+    /// Intentionally not used for `**` (power/exponentiation), which is
+    /// correctly right-associative per WDL/math convention, matching the
+    /// grammar's natural shape.
+    fn combine_left_associative(
+        left: WdlExpression,
+        op: BinaryOperator,
+        right: WdlExpression,
+        same_level: impl Fn(BinaryOperator) -> bool + Copy,
+    ) -> WdlExpression {
+        if let WdlExpression::BinaryOp(inner) = right {
+            if same_level(inner.operator) {
+                let WdlBinaryOperation {
+                    left: inner_left,
+                    operator: inner_op,
+                    right: inner_right,
+                } = *inner;
+                let new_left = Self::combine_left_associative(left, op, *inner_left, same_level);
+                return WdlExpression::BinaryOp(Box::new(WdlBinaryOperation {
+                    left: Box::new(new_left),
+                    operator: inner_op,
+                    right: inner_right,
+                }));
+            }
+            return WdlExpression::BinaryOp(Box::new(WdlBinaryOperation {
+                left: Box::new(left),
+                operator: op,
+                right: Box::new(WdlExpression::BinaryOp(inner)),
+            }));
+        }
+        WdlExpression::BinaryOp(Box::new(WdlBinaryOperation {
+            left: Box::new(left),
+            operator: op,
+            right: Box::new(right),
+        }))
     }
 
     // -------------------------------------------------------------------------
@@ -2644,7 +2730,23 @@ impl<'input> WdlV1ParserVisitor<'input> for WdlV1Builder {
             .strictIdentifier()
             .map(|id| id.get_text().to_owned())
             .unwrap_or_default();
-        self.stack.push(StackItem::Expr(WdlExpression::Variable(name)));
+        // Grammar ambiguity: `booleanLiteral`/`noneLiteral` and `variable`
+        // (via `strictIdentifier -> anyIdentBase -> KEYWORD_TRUE/FALSE/NONE`)
+        // both match a bare `true`/`false`/`None` token; ANTLR's ALL(*)
+        // resolves the ambiguity in favor of `variable` (listed first in
+        // `primaryExpression`), so these keywords always arrive here rather
+        // than through `visit_booleanLiteral`/`visit_noneLiteral`. Translate
+        // them to their proper literal representation at the source, rather
+        // than leaving `Variable("true")`/`Variable("None")` for every call
+        // site to special-case (as `is_assignable_from` already had to for
+        // `"None"`).
+        let expr = match name.as_str() {
+            "true" => WdlExpression::BoolLit(true),
+            "false" => WdlExpression::BoolLit(false),
+            "None" | "null" => WdlExpression::NullLit,
+            _ => WdlExpression::Variable(name),
+        };
+        self.stack.push(StackItem::Expr(expr));
     }
 
     fn visit_callExpression(&mut self, ctx: &CallExpressionContext<'input>) {
@@ -2689,26 +2791,20 @@ impl<'input> WdlV1ParserVisitor<'input> for WdlV1Builder {
         self.visit_children(ctx);
         let right = self.pop_expr();
         let left = self.pop_expr();
-        self.stack.push(StackItem::Expr(WdlExpression::BinaryOp(Box::new(
-            WdlBinaryOperation {
-                left: Box::new(left),
-                operator: BinaryOperator::Or,
-                right: Box::new(right),
-            },
-        ))));
+        let expr = Self::combine_left_associative(left, BinaryOperator::Or, right, |op| {
+            op == BinaryOperator::Or
+        });
+        self.stack.push(StackItem::Expr(expr));
     }
 
     fn visit_logicalAndExprOperation(&mut self, ctx: &LogicalAndExprOperationContext<'input>) {
         self.visit_children(ctx);
         let right = self.pop_expr();
         let left = self.pop_expr();
-        self.stack.push(StackItem::Expr(WdlExpression::BinaryOp(Box::new(
-            WdlBinaryOperation {
-                left: Box::new(left),
-                operator: BinaryOperator::And,
-                right: Box::new(right),
-            },
-        ))));
+        let expr = Self::combine_left_associative(left, BinaryOperator::And, right, |op| {
+            op == BinaryOperator::And
+        });
+        self.stack.push(StackItem::Expr(expr));
     }
 
     fn visit_equalityExprOperation(&mut self, ctx: &EqualityExprOperationContext<'input>) {
@@ -2720,13 +2816,10 @@ impl<'input> WdlV1ParserVisitor<'input> for WdlV1Builder {
         } else {
             BinaryOperator::Neq
         };
-        self.stack.push(StackItem::Expr(WdlExpression::BinaryOp(Box::new(
-            WdlBinaryOperation {
-                left: Box::new(left),
-                operator: op,
-                right: Box::new(right),
-            },
-        ))));
+        let expr = Self::combine_left_associative(left, op, right, |op| {
+            matches!(op, BinaryOperator::Eq | BinaryOperator::Neq)
+        });
+        self.stack.push(StackItem::Expr(expr));
     }
 
     fn visit_comparisonExprOperation(&mut self, ctx: &ComparisonExprOperationContext<'input>) {
@@ -2744,13 +2837,13 @@ impl<'input> WdlV1ParserVisitor<'input> for WdlV1Builder {
         } else {
             panic!("visit_comparisonExprOperation: unknown operator");
         };
-        self.stack.push(StackItem::Expr(WdlExpression::BinaryOp(Box::new(
-            WdlBinaryOperation {
-                left: Box::new(left),
-                operator: op,
-                right: Box::new(right),
-            },
-        ))));
+        let expr = Self::combine_left_associative(left, op, right, |op| {
+            matches!(
+                op,
+                BinaryOperator::Lt | BinaryOperator::Lte | BinaryOperator::Gt | BinaryOperator::Gte
+            )
+        });
+        self.stack.push(StackItem::Expr(expr));
     }
 
     fn visit_additiveExprOperation(&mut self, ctx: &AdditiveExprOperationContext<'input>) {
@@ -2762,13 +2855,10 @@ impl<'input> WdlV1ParserVisitor<'input> for WdlV1Builder {
         } else {
             BinaryOperator::Subtract
         };
-        self.stack.push(StackItem::Expr(WdlExpression::BinaryOp(Box::new(
-            WdlBinaryOperation {
-                left: Box::new(left),
-                operator: op,
-                right: Box::new(right),
-            },
-        ))));
+        let expr = Self::combine_left_associative(left, op, right, |op| {
+            matches!(op, BinaryOperator::Add | BinaryOperator::Subtract)
+        });
+        self.stack.push(StackItem::Expr(expr));
     }
 
     fn visit_multiplicativeExprOperation(
@@ -2787,13 +2877,13 @@ impl<'input> WdlV1ParserVisitor<'input> for WdlV1Builder {
         } else {
             panic!("visit_multiplicativeExprOperation: unknown operator");
         };
-        self.stack.push(StackItem::Expr(WdlExpression::BinaryOp(Box::new(
-            WdlBinaryOperation {
-                left: Box::new(left),
-                operator: op,
-                right: Box::new(right),
-            },
-        ))));
+        let expr = Self::combine_left_associative(left, op, right, |op| {
+            matches!(
+                op,
+                BinaryOperator::Multiply | BinaryOperator::Divide | BinaryOperator::Modulo
+            )
+        });
+        self.stack.push(StackItem::Expr(expr));
     }
 
     fn visit_powerExprOperation(&mut self, ctx: &PowerExprOperationContext<'input>) {

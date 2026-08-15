@@ -11,8 +11,34 @@
 //! URI resolution logic in [`resolve_import_uri`] mirrors
 //! `WdlImportResolverBase.resolveImportUri` from the Java implementation.
 
-use std::path::Path;
+use std::path::{Component, Path, PathBuf};
 use url::Url;
+
+/// Lexically normalizes a path by collapsing `.` and `..` components, without
+/// touching the filesystem (no symlink resolution, and it works even if the
+/// path doesn't exist). Mirrors `java.nio.file.Path.normalize()`.
+///
+/// Without this, a relative import like `import "../root.wdl"` resolved
+/// against `.../nested/child.wdl` produces `.../nested/../root.wdl` instead of
+/// `.../root.wdl` — harmless for a single resolution, but on a circular
+/// import (`root.wdl` -> `nested/child.wdl` -> `../root.wdl` -> ...) each hop
+/// accumulates another unresolved `nested/..` segment, so the same file is
+/// never recognized as already-visited and the path grows without bound.
+fn normalize_path(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::ParentDir => {
+                if !out.pop() {
+                    out.push(component);
+                }
+            }
+            Component::CurDir => {}
+            other => out.push(other),
+        }
+    }
+    out
+}
 
 // ============================================================================
 // Error type
@@ -161,7 +187,7 @@ pub fn resolve_import_uri(
                         bare_path.to_path_buf()
                     } else {
                         let parent = current_path.parent().unwrap_or(Path::new("/"));
-                        parent.join(bare_path)
+                        normalize_path(&parent.join(bare_path))
                     };
                     Url::from_file_path(&resolved).map_err(|_| WdlImportError::InvalidPath {
                         location: import_location.to_owned(),

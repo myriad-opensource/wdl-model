@@ -171,7 +171,7 @@ token matching (`match_token`) uses direct token-id equality, not interval-set
 membership, so genuinely malformed WDL will still fail via `recover_inline`/mismatched
 `match_token` when the parser reaches an actual dead end.
 
-## Phase 2 — Fix (revised: full no-op `sync()`, not the surgical `contains()` guard)
+## Phase 2 — Fix (revised: full no-op `sync()`, not the surgical `contains()` guard) (DONE)
 
 In `rust/src/loader.rs`, add alongside `WdlErrorListener` (~line 155):
 
@@ -301,15 +301,164 @@ Already-identified gaps that seeded this audit (all confirmed, see doc for exact
 - `spec_validation_test.rs` skips `placeholder_none.wdl` / `test_select_first.wdl` for
   over-eager `select_first`/`None` constant folding in `validators/mod.rs`
 
-## Phase 5 — Upstream
+## Phase 5 — Bring Rust tests to parity with Java (addressing Phase 4 gaps) (DONE)
 
-File an issue at `github.com/antlr4rust/antlr4` with the minimal repro from Phase 1.
+Worked through the Phase 4 audit's prioritized follow-up list end-to-end. **Result:
+0 failing tests** across the entire suite (up from 90 passing / 1 pre-existing failure
+before this phase — that failure is also now fixed, see below — to 133 passing / 0
+failing). Every discovery below was verified with a throwaway probe test before being
+acted on; all probes were deleted afterward, per this plan's established practice.
+
+### Test-only additions (fixtures/behavior already correct, just needed test coverage)
+
+- **`non_runtime_completion_test.rs`**: restructured to mirror Java's validator-tier
+  choice exactly (base `WdlValidator` for baseline-function-args/member-index/import-
+  alias cases, `WdlStaticAnalysisValidator` only for the placeholder/json-type-level
+  cases) instead of using the static tier for everything. This incidentally un-skipped
+  `unknown_struct_field_fail.wdl` (its "known gap" comment cited the exact grammar
+  limitation Phase 2 fixed) and fixed `accepts_import_alias_nested` (which only fails
+  under the static tier — a separate, narrower issue than originally scoped, no longer
+  blocking since the test now correctly asserts the base tier per Java).
+- **`import_validation_test.rs`**: added ~14 spec-examples-based cases
+  (`call_example.wdl`, `call_imported.wdl`, `call_subworkflow_fail.wdl`,
+  `incomplete_struct_fail.wdl`, `illegal_access_fail.wdl` × up to 3 versions each).
+- **`spec_validation_test.rs`**: added `all_v1_{1,2,3}_fail_examples_rejected_by_base_
+  validator`, asserting every `_fail.wdl` spec example is rejected by the base validator
+  (parse error or validation error both count, mirroring Java's combined
+  `load(content, validator)` semantics) — with a small, explicitly-documented exception
+  list (`BASE_VALIDATOR_KNOWN_GAP`) for 3 genuine base-tier validator-architecture gaps
+  (see below). `spec_parse_test.rs` needed no changes: the reserved-keyword parse-failure
+  exception set Java requires doesn't apply here — all 7 files parse successfully in
+  this grammar (`anyIdentBase` is more permissive than Java's).
+- **`validator_test.rs`**: added the missing 10-file v1_3 spec-example batch test and the
+  loader-integration test (`select_first_empty_fail.wdl` through the combined
+  load+validate path).
+- **`type_assignability_matrix_test.rs`**: added the 3 missing fixtures, using the same
+  `WdlStaticAnalysisValidator` already used throughout the file (kept, rather than
+  switched to base `WdlValidator` as Java uses — this codebase's base validator performs
+  no type-assignability checking at all, confirmed empirically; switching would make
+  every "rejects" case trivially pass without validating anything).
+- **`processor_test.rs`**: added the 3 entirely-missing Java test classes'-worth of
+  coverage (`WdlFunctionProcessorBaseTest`, `WdlProcessorBaseEnumInferenceTest`,
+  `WdlProcessorBaseImportResolutionTest`) — required adding a handful of small, genuinely
+  missing (not buggy) API surface to production code to have something to test against:
+  `WdlStruct::has_member`/`member_type`, `WdlEnum::has_choice`/`choice`,
+  `processors::base::infer_enum_value_type`, and
+  `processors::base::resolve_imported_document` (the other `resolve_imported_*` free
+  functions already existed).
+- **`loader_test.rs`**: added the grammar-behavior fixtures (associativity ×3,
+  reserved-keyword-as-identifier ×4) and loader-imports fixtures (recursive,
+  string-source, circular ×2) — see below for the real bugs these surfaced.
+
+### Genuine bugs found and fixed along the way (not test-writing — production code)
+
+Each of these was undocumented in the Phase 4 audit; all surfaced only once real test
+coverage was added and the assertions were checked against actual output, not assumed.
+
+1. **Binary operators were right-associative, not left-associative** (`src/loader.rs`,
+   `visit_{logicalOr,logicalAnd,equality,comparison,additive,multiplicative}
+   ExprOperation`). The grammar's operator rules are right-recursive (e.g.
+   `additiveExpression : multiplicativeExpression (PLUS|MINUS) additiveExpression |
+   multiplicativeExpression`), and the visitor just nested `BinaryOp{left,op,right}` at
+   each level without re-associating, so `1 - 2 - 3` built as `1 - (2 - 3)` (evaluates to
+   `2`) instead of the WDL-spec-correct `(1 - 2) - 3` (evaluates to `-4`). This is a
+   real, silent, semantic-correctness bug affecting any workflow chaining same-precedence
+   operators (repeated `-`, `/`, `%`, `||`, `&&`, chained comparisons/equality). Fixed
+   with a general `combine_left_associative` helper (recursively rotates along the
+   right-hand spine); intentionally not applied to `**` (power), which is correctly
+   right-associative per WDL/math convention already. Verified via the new
+   `parses_{additive,multiplicative,logical_or}_chains_as_left_associative` tests in
+   `loader_test.rs`, asserting the exact expected AST shape (matches Java's equivalent
+   assertions).
+2. **Bare `true`/`false`/`None`/`null` parsed as `Variable("true")` etc., never as
+   `BoolLit`/`NullLit`** (`src/loader.rs`, `visit_variable`). The grammar has an inherent
+   ambiguity: `primaryExpression`'s `variable` alternative (via
+   `strictIdentifier -> anyIdentBase -> KEYWORD_TRUE/FALSE/NONE/NULL`) and its
+   `booleanLiteral`/`noneLiteral` alternatives both match these bare tokens; ANTLR's
+   ALL(*) always resolves to `variable` (listed first). This was already a known,
+   worked-around issue for `"None"` specifically (`is_assignable_from` special-cased
+   `Variable(n) if n == "None"`) but not for `true`/`false`, and the workaround was only
+   applied at one use-site, not universally. Fixed at the source in `visit_variable`,
+   translating these 4 keywords directly to their literal representation — the existing
+   `"None"` special-case elsewhere is now redundant but harmless (dead code path).
+3. **Circular imports were silently truncated to an empty document, never reported as an
+   error** (`src/loader.rs`, `load_with_resolver_inner`). The previous implementation
+   tracked "ever seen" URLs in a flat `HashSet` across the *entire* import tree, so both
+   genuine cycles and legitimate diamond-shaped shared imports hit the same
+   "already seen → return empty stub" branch, with no error either way. Replaced with a
+   `Vec<String>` tracking the *active recursion path* (push on entry, implicitly
+   abandoned on error, matching Java's `WdlImportException` with a
+   "Circular import detected: a -> b -> a"-style message chain). Diamond imports
+   (two siblings importing the same document) are unaffected — that dedup check was
+   already separate and per-document, not global.
+4. **Relative import path resolution never normalized `..`/`.` segments**
+   (`src/resolvers/mod.rs`, `resolve_import_uri`'s `file://` branch). `parent.join(bare_path)`
+   was used directly, so `import "../root.wdl"` resolved against
+   `.../nested/child.wdl` produced `.../nested/../root.wdl` instead of `.../root.wdl`.
+   Harmless for a single hop, but on a circular import
+   (`root.wdl -> nested/child.wdl -> ../root.wdl -> ...`) each pass accumulated another
+   unresolved `nested/..` segment, so the same file was never recognized as
+   already-visited and the path grew until hitting the OS path-length limit
+   (`File name too long`) instead of erroring cleanly. This bug was latent even before
+   this session's cycle-detection fix (any consumer resolving the same relative import
+   twice would get inconsistent URL strings for the same file), but was only surfaced by
+   adding real circular-import test coverage. Fixed with a small lexical
+   `normalize_path` helper (collapses `.`/`..` without touching the filesystem, matching
+   `java.nio.file.Path.normalize()` semantics — no symlink resolution, works even if the
+   path doesn't exist).
+5. **`is_type_assignable` didn't support `String -> File`/`Directory` coercion or
+   structural struct-to-struct coercion** (`src/validators/mod.rs`). Surfaced while
+   adding `type_assignability_matrix_test.rs`'s 3 missing fixtures: `File f = "path"` and
+   `D coerced = <B-typed value>` (where `B`/`D` are different struct names with
+   identical, or recursively-compatible, field names+types) both produced `TypeMismatch`
+   errors even though every other implementation (Java/Python/TS/Go) accepts them. Fixed
+   by adding a `String -> File`/`Directory` primitive-coercion arm, and a
+   `TypeRef -> TypeRef` structural-compatibility arm that recurses field-by-field using
+   the already-populated (but previously unused for this purpose) `struct_member_types`
+   index — reusing existing indexing infrastructure rather than adding new state.
+
+### New public API surface added (all additive, no signature changes to existing APIs)
+
+- `wdl_model::loader::load_from_str_with_resolver(source, source_location, resolver)` —
+  parse in-memory source + resolve its imports, for callers who have source text but not
+  (yet) a file on disk. Refactored `load_with_resolver_inner` to take an
+  `Option<&str>` pre-loaded-content parameter to support this without duplicating the
+  recursive-resolution logic.
+- `WdlStruct::has_member(name)` / `member_type(name)`
+- `WdlEnum::has_choice(name)` / `choice(name)`
+- `processors::base::infer_enum_value_type(en)` — implicit enum value-type inference
+  (String default; Int/Float widen to Float; incompatible/dynamic choice values → `None`)
+- `processors::base::resolve_imported_document(doc, imp)`
+
+### Verification
+
+- Every fix above was probed in isolation (throwaway `rust/tests/probe5.rs`, deleted
+  after each use) before writing the corresponding permanent test, confirming the fix
+  actually changes behavior in the expected direction and doesn't regress anything else.
+- Full suite (`cargo test`) run after each individual change in this phase, not just at
+  the end — confirmed monotonically non-decreasing pass count throughout, ending at
+  133 passing / 0 failing (from 90 passing / 1 failing at the start of this phase).
+- `cargo clippy -- -D warnings`: no new warnings (verified the full warning list contains
+  no references to any file touched in this phase).
+- `rustfmt --check` on every touched file: all diffs found are pre-existing formatting
+  drift unrelated to this phase's edits (confirmed by cross-referencing diff line ranges
+  against `git diff` hunk boundaries, and, for `loader.rs`'s few borderline cases, by
+  checking the function bodies were byte-identical to `HEAD` before this phase).
 
 ## Out of scope (deferred)
 
-- Fixing the `select_first`/`None` constant-folding false positives
-- Adding the missing Java-parity test cases
-- Removing the `_fail.wdl` skip in `spec_validation_test.rs`
+- Fixing the `select_first`/`None` constant-folding false positives in
+  `validators/mod.rs` (the `VALIDATOR_FALSE_POSITIVE` skip set in
+  `spec_validation_test.rs`)
 - Phase 7 Step 0 deprecation checks from `rust_phase_7.md`
+- Filing an upstream issue against `antlr4rust` for the `sync()`/`IntervalSet::contains()`
+  bug found in Phase 1
+- The 3 remaining base-tier validator-architecture gaps documented in
+  `spec_validation_test.rs`'s `BASE_VALIDATOR_KNOWN_GAP` (`non_empty_optional_fail.wdl`,
+  `write_json_fail.wdl`, `illegal_access_fail.wdl`) — genuine missing base-tier checks,
+  narrower and better-understood after Phase 5 than in the original Phase 4 audit, but
+  still deferred as a deeper validator-architecture change (would need auditing every
+  other test that currently relies on the base tier *not* catching these classes of
+  error)
 
 Nothing under `wdl_tests/` or `wdl-grammar/` will be modified by this plan.

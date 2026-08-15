@@ -10,6 +10,7 @@
 
 use crate::definitions::{WdlEnum, WdlStruct, WdlStructMember, WdlTask, WdlWorkflow};
 use crate::document::{WdlDocument, WdlDocumentElement};
+use crate::expressions::WdlExpression;
 use crate::sections::{
     WdlCommand, WdlInput, WdlMetadata, WdlOutput, WdlParameterMetadata, WdlRequirements,
     WdlRuntime, WdlTaskHints, WdlWorkflowHints,
@@ -18,6 +19,7 @@ use crate::statements::{
     WdlBoundDeclaration, WdlCall, WdlConditional, WdlImport, WdlImportMembers, WdlImportStandard,
     WdlImportStar, WdlScatter,
 };
+use crate::types::{WdlPrimitiveKind, WdlPrimitiveType, WdlType};
 use crate::version::WdlVersion;
 
 // Re-export render helpers so callers can reach them through this module.
@@ -261,6 +263,59 @@ pub trait WdlProcessor {
 
     /// Called for the `hints { … }` section of a workflow.
     fn process_workflow_hints(&mut self, _ctx: &WdlWorkflow, _node: &WdlWorkflowHints) {}
+}
+
+// ---------------------------------------------------------------------------
+// Enum choice value type inference
+// ---------------------------------------------------------------------------
+
+/// Infers the value type of an enum's choices when no explicit
+/// `enum Foo[Type] { ... }` type parameter is given.
+///
+/// Mirrors Java's `WdlTypeInference.inferEnumValueType` /
+/// `WdlProcessorBase.inferEnumValueType`:
+/// - Choices with no value expression (or all choices lacking one) default to
+///   `String`.
+/// - `Int` and `Float` choice values widen to `Float` if mixed.
+/// - Any two choices with genuinely incompatible or unrecognizable value
+///   types (e.g. a non-literal expression whose type can't be determined)
+///   yield `None`.
+pub fn infer_enum_value_type(en: &WdlEnum) -> Option<WdlType> {
+    fn literal_kind(expr: &WdlExpression) -> Option<WdlPrimitiveKind> {
+        match expr {
+            WdlExpression::BoolLit(_) => Some(WdlPrimitiveKind::Boolean),
+            WdlExpression::IntLit(_) => Some(WdlPrimitiveKind::Int),
+            WdlExpression::FloatLit(_) => Some(WdlPrimitiveKind::Float),
+            WdlExpression::StrLit(_) => Some(WdlPrimitiveKind::String),
+            _ => None,
+        }
+    }
+
+    let mut inferred: Option<WdlPrimitiveKind> = None;
+    let mut any_value = false;
+
+    for choice in &en.elements {
+        let Some(value) = &choice.value else {
+            continue;
+        };
+        any_value = true;
+        let kind = literal_kind(value)?;
+        inferred = Some(match (inferred, kind) {
+            (None, k) => k,
+            (Some(WdlPrimitiveKind::Int), WdlPrimitiveKind::Float)
+            | (Some(WdlPrimitiveKind::Float), WdlPrimitiveKind::Int) => WdlPrimitiveKind::Float,
+            (Some(prev), k) if prev == k => prev,
+            _ => return None, // incompatible choice value types
+        });
+    }
+
+    if !any_value {
+        return Some(WdlType::Primitive(WdlPrimitiveType::new(
+            WdlPrimitiveKind::String,
+        )));
+    }
+
+    inferred.map(|k| WdlType::Primitive(WdlPrimitiveType::new(k)))
 }
 
 // ---------------------------------------------------------------------------
@@ -563,6 +618,18 @@ pub fn resolve_imported_enums(
             }
         })
         .collect()
+}
+
+/// Resolve the already-loaded imported document for a given import statement,
+/// looked up by its canonical `import_identifier` in `doc.imported_documents`.
+///
+/// Mirrors `WdlProcessorBase.resolveImportedDocument`.
+pub fn resolve_imported_document(doc: &WdlDocument, imp: &WdlImport) -> Option<WdlDocument> {
+    let key = imp.import_identifier()?;
+    if key.is_empty() {
+        return None;
+    }
+    doc.imported_documents.get(key).cloned()
 }
 
 // ---------------------------------------------------------------------------

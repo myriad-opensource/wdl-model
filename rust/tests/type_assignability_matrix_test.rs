@@ -1,4 +1,14 @@
 //! Mirrors Java `WdlTypeAssignabilityMatrixTest`.
+//!
+//! Note: Java's equivalent test uses the base `WdlValidator` for these cases,
+//! since Java's base validator performs type-assignability checking directly.
+//! In this implementation, type-assignability checking lives in the static
+//! analysis tier only — the base `WdlValidator` does not reject any of the
+//! `_fail.wdl` fixtures here (confirmed empirically). Using
+//! `WdlStaticAnalysisValidator` throughout this file, consistent with the rest
+//! of the suite and with Go's equivalent test, is intentional and correct for
+//! this codebase's validator architecture, not a parity gap to "fix" by
+//! switching to the base validator.
 
 use std::path::PathBuf;
 
@@ -19,6 +29,8 @@ fn fixture(name: &str) -> PathBuf {
 #[case("optional_from_none_ok.wdl")]
 #[case("array_nested_ok.wdl")]
 #[case("map_value_type_ok.wdl")]
+#[case("file_directory_from_string_ok.wdl")]
+#[case("struct_to_struct_coercion_ok.wdl")]
 fn accepts_compatible_assignment(#[case] name: &str) {
     let doc = load_from_path(&fixture(name))
         .unwrap_or_else(|e| panic!("load {name}: {e}"));
@@ -36,6 +48,7 @@ fn accepts_compatible_assignment(#[case] name: &str) {
 #[case("required_string_to_int_fail.wdl")]
 #[case("array_string_to_int_fail.wdl")]
 #[case("map_value_type_fail.wdl")]
+#[case("struct_to_struct_incompatible_fail.wdl")]
 fn rejects_incompatible_assignment(#[case] name: &str) {
     let doc = load_from_path(&fixture(name))
         .unwrap_or_else(|e| panic!("load {name}: {e}"));

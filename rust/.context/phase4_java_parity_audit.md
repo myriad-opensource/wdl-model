@@ -314,37 +314,47 @@ different angle.
 | `processor_test.rs` | 2/5 Java processor test classes mirrored | n/a | 3 whole test classes |
 | `resolver_test.rs` | full parity, but 1 weak placeholder test | n/a | 0 new, but see loader_test.rs |
 
-## Prioritized Follow-Up List (for a future session — not actioned here)
+## Prioritized Follow-Up List
 
-1. **Quick win, directly related to this plan's Phase 2 fix**: re-check
+**Update: items 1–6 were all implemented in Phase 5 (see
+`rust_parser_fix_plan.md`'s Phase 5 section for the full writeup, including 5 genuine
+production-code bugs discovered and fixed along the way — associativity, boolean/null
+literal parsing, circular-import detection, relative-path normalization, and two
+type-assignability coercion gaps). Item 7 remains open/deferred.**
+
+1. ~~**Quick win, directly related to this plan's Phase 2 fix**: re-check
    `non_runtime_completion/member_index_checks/unknown_struct_field_fail.wdl` — the
    grammar limitation it was documented as hitting is exactly what Phase 2 fixed. If it
    now parses, un-skip it (mirrors the Phase 3 `PARSE_GAP` cleanup already done for
-   `spec_validation_test.rs`).
-2. **Largest, most mechanical gap**: `import_validation_test.rs`'s missing
-   spec-examples-based cases (~15 tests, fixtures already exist on disk).
-3. **Second-largest, most mechanical gap**: `spec_validation_test.rs`'s missing
+   `spec_validation_test.rs`).~~ **Done** — un-skipped; also fixed
+   `accepts_import_alias_nested` in the same file by correcting the validator tier used.
+2. ~~**Largest, most mechanical gap**: `import_validation_test.rs`'s missing
+   spec-examples-based cases (~15 tests, fixtures already exist on disk).~~ **Done.**
+3. ~~**Second-largest, most mechanical gap**: `spec_validation_test.rs`'s missing
    "`_fail.wdl` must be rejected by base validator" assertions (dozens of cases,
    fixtures already exist on disk) — the original Phase 7 plan intended this
    (`rust_phase_7.md` Step 1) but it was apparently descoped to "skip all `_fail` files"
-   instead.
-4. **Structural, higher-effort gap**: `loader_test.rs` missing grammar-behavior
+   instead.~~ **Done**, with a small documented exception list for 3 genuine base-tier
+   validator-architecture gaps (narrower than originally feared).
+4. ~~**Structural, higher-effort gap**: `loader_test.rs` missing grammar-behavior
    (associativity/reserved-keyword) and loader-imports (recursive/circular) fixture
    coverage — real functional gaps, not just missing assertions, since Rust currently has
    no test proving circular-import detection or recursive `imported_documents`
-   population work correctly at all.
-5. **Structural, higher-effort gap**: `processor_test.rs` missing 3 whole Java test
+   population work correctly at all.~~ **Done** — and this is exactly where the
+   associativity, boolean/null-literal, circular-import-detection, and path-normalization
+   bugs were found; all fixed.
+5. ~~**Structural, higher-effort gap**: `processor_test.rs` missing 3 whole Java test
    classes' worth of coverage (function-dispatch, enum-inference, import-resolution
-   helpers).
-6. **Smaller/targeted fixes**: add the 3 missing `type_assignability_matrix` fixtures and
+   helpers).~~ **Done** — required adding a few genuinely-missing (not buggy) small API
+   surfaces (`WdlStruct::has_member`/`member_type`, `WdlEnum::has_choice`/`choice`,
+   `infer_enum_value_type`, `resolve_imported_document`) to have something to test.
+6. ~~**Smaller/targeted fixes**: add the 3 missing `type_assignability_matrix` fixtures and
    resolve the base-vs-static validator tier inconsistency in that file and in
    `non_runtime_completion_test.rs`; add the missing `validator_test.rs` 10-file batch +
-   loader-integration test; consider running `http-resolver` feature tests in CI.
+   loader-integration test; consider running `http-resolver` feature tests in CI.~~
+   **Done**, except the `http-resolver` CI suggestion (still open, low priority).
 7. **Worth independent investigation, not just a test-writing task**: the
    `VALIDATOR_FALSE_POSITIVE` skip (`placeholder_none.wdl`, `test_select_first.wdl`) in
    `spec_validation_test.rs` may indicate a genuine Rust-specific validator bug
    (over-eager `select_first`/`None` constant folding) not present in other languages —
-   already flagged as "out of scope" for this plan but worth its own ticket.
-
-None of the above have been implemented as part of this Phase 4 audit — per the plan,
-this phase is report-only.
+   still open/deferred, per `rust_parser_fix_plan.md`'s "Out of scope" list.
