@@ -99,7 +99,8 @@ struct Usage {
 impl Usage {
     fn merge(&mut self, other: Usage) {
         self.used_variables.extend(other.used_variables);
-        self.used_call_output_targets.extend(other.used_call_output_targets);
+        self.used_call_output_targets
+            .extend(other.used_call_output_targets);
     }
 }
 
@@ -167,8 +168,7 @@ impl ValidatorRunner {
     fn should_throw(&self) -> bool {
         self.errors.iter().any(|e| {
             e.severity() == crate::errors::Severity::Error
-                || (self.throw_on_warnings
-                    && e.severity() == crate::errors::Severity::Warning)
+                || (self.throw_on_warnings && e.severity() == crate::errors::Severity::Warning)
         })
     }
 
@@ -186,7 +186,10 @@ impl ValidatorRunner {
                 if name == "None" {
                     return EvalValue::Null;
                 }
-                self.scope_values.get(name).cloned().unwrap_or(EvalValue::Unknown)
+                self.scope_values
+                    .get(name)
+                    .cloned()
+                    .unwrap_or(EvalValue::Unknown)
             }
             WdlExpression::StrLit(lit) => {
                 let mut s = String::new();
@@ -202,7 +205,11 @@ impl ValidatorRunner {
                         }
                     }
                 }
-                if pure { EvalValue::Str(s) } else { EvalValue::Unknown }
+                if pure {
+                    EvalValue::Str(s)
+                } else {
+                    EvalValue::Unknown
+                }
             }
             WdlExpression::ArrayLit(arr) => {
                 let items = arr.entries.iter().map(|e| self.eval_expr(e)).collect();
@@ -272,7 +279,9 @@ impl ValidatorRunner {
             }
             WdlExpression::PairLit(p) => {
                 let l = self.infer_type(&p.left).unwrap_or_else(|| prim(PK::String));
-                let r = self.infer_type(&p.right).unwrap_or_else(|| prim(PK::String));
+                let r = self
+                    .infer_type(&p.right)
+                    .unwrap_or_else(|| prim(PK::String));
                 Some(WdlType::Pair(Box::new(WdlPairType::new(l, r))))
             }
             WdlExpression::StructLit(s) => {
@@ -285,9 +294,7 @@ impl ValidatorRunner {
                 match op.operator {
                     Or | And | Eq | Neq | Lt | Lte | Gt | Gte => Some(prim(PK::Boolean)),
                     Add | Subtract | Multiply | Divide | Modulo | Power => {
-                        let is_float = |t: &Option<WdlType>| {
-                            matches!(t, Some(WdlType::Primitive(p)) if p.primitive_kind == PK::Float)
-                        };
+                        let is_float = |t: &Option<WdlType>| matches!(t, Some(WdlType::Primitive(p)) if p.primitive_kind == PK::Float);
                         if is_float(&lt) || is_float(&rt) {
                             Some(prim(PK::Float))
                         } else {
@@ -300,10 +307,9 @@ impl ValidatorRunner {
                 UnaryOperator::Not => Some(prim(PK::Boolean)),
                 UnaryOperator::Negative => self.infer_type(&op.operand),
             },
-            WdlExpression::TernaryOp(op) => {
-                self.infer_type(&op.true_value)
-                    .or_else(|| self.infer_type(&op.false_value))
-            }
+            WdlExpression::TernaryOp(op) => self
+                .infer_type(&op.true_value)
+                .or_else(|| self.infer_type(&op.false_value)),
             WdlExpression::MemberOp(op) => {
                 if let WdlExpression::Variable(name) = op.target.as_ref() {
                     if let Some(outputs) = self.call_output_types.get(name.as_str()) {
@@ -340,14 +346,10 @@ impl ValidatorRunner {
             ReadFloat | Size => Some(prim(PK::Float)),
             Sub | Basename | ReadString | Sep => Some(prim(PK::String)),
             ReadBoolean | Defined | Matches => Some(prim(PK::Boolean)),
-            Stdout | Stderr | WriteLines | WriteTsv | WriteMap | WriteObject
-            | WriteObjects | WriteJson => Some(prim(PK::File)),
-            Find => {
-                Some(WdlType::Primitive(WdlPrimitiveType::optional(PK::String)))
-            }
-            ReadLines | Prefix | Suffix | Quote | Squote => {
-                Some(arr(prim(PK::String)))
-            }
+            Stdout | Stderr | WriteLines | WriteTsv | WriteMap | WriteObject | WriteObjects
+            | WriteJson => Some(prim(PK::File)),
+            Find => Some(WdlType::Primitive(WdlPrimitiveType::optional(PK::String))),
+            ReadLines | Prefix | Suffix | Quote | Squote => Some(arr(prim(PK::String))),
             Glob => Some(arr(prim(PK::File))),
             Range => Some(arr(prim(PK::Int))),
             _ => None,
@@ -376,18 +378,30 @@ impl ValidatorRunner {
         }
         match (expected, actual) {
             // Int → Float promotion
-            (
-                WdlType::Primitive(e),
-                WdlType::Primitive(a),
-            ) if e.primitive_kind == PK::Float && a.primitive_kind == PK::Int => true,
+            (WdlType::Primitive(e), WdlType::Primitive(a))
+                if e.primitive_kind == PK::Float && a.primitive_kind == PK::Int =>
+            {
+                true
+            }
 
             // String → File / Directory coercion (WDL spec: string literals/values
             // are assignable to File and Directory typed declarations).
-            (
-                WdlType::Primitive(e),
-                WdlType::Primitive(a),
-            ) if (e.primitive_kind == PK::File || e.primitive_kind == PK::Directory)
-                && a.primitive_kind == PK::String => true,
+            (WdlType::Primitive(e), WdlType::Primitive(a))
+                if (e.primitive_kind == PK::File || e.primitive_kind == PK::Directory)
+                    && a.primitive_kind == PK::String =>
+            {
+                true
+            }
+
+            // File / Directory → String coercion (WDL spec: path-like values
+            // are assignable to String declarations, e.g. a File returned by
+            // `write_map` used in a String-typed context).
+            (WdlType::Primitive(e), WdlType::Primitive(a))
+                if e.primitive_kind == PK::String
+                    && (a.primitive_kind == PK::File || a.primitive_kind == PK::Directory) =>
+            {
+                true
+            }
 
             // Optional expected: strip optional and re-check
             (e, a) if e.is_optional() && !a.is_optional() => {
@@ -447,6 +461,21 @@ impl ValidatorRunner {
         {
             return expected.is_optional();
         }
+
+        // Enum choice check — if the expected type is a TypeRef pointing at
+        // a known enum, and the expression evaluates to a string constant,
+        // require the string to be one of the enum's declared choices.
+        // Matches Java `WdlExpressionValidator.isAssignableFrom` L216-224.
+        if let WdlType::TypeRef(tr) = expected {
+            if let Some(enum_shape) = self.enum_shapes.get(&tr.reference_name) {
+                if let EvalValue::Str(s) = self.eval_expr(expr) {
+                    return enum_shape.choices.iter().any(|c| c == &s);
+                }
+                // Unknown evaluation — fall through to type-based check
+                // (conservative: assume compatible if we can't evaluate).
+            }
+        }
+
         match self.infer_type(expr) {
             Some(actual) => self.is_type_assignable(expected, &actual),
             None => true, // can't infer → assume compatible
@@ -455,12 +484,10 @@ impl ValidatorRunner {
 
     fn contains_non_string_map_key(&self, expr: &WdlExpression) -> bool {
         if let WdlExpression::MapLit(m) = expr {
-            return m.entries.iter().any(|e| {
-                match self.infer_type(&e.key) {
-                    Some(WdlType::Primitive(p)) => p.primitive_kind != WdlPrimitiveKind::String,
-                    Some(_) => true,
-                    None => false,
-                }
+            return m.entries.iter().any(|e| match self.infer_type(&e.key) {
+                Some(WdlType::Primitive(p)) => p.primitive_kind != WdlPrimitiveKind::String,
+                Some(_) => true,
+                None => false,
             });
         }
         false
@@ -608,10 +635,7 @@ impl ValidatorRunner {
             if doc_ver >= removed {
                 self.add_error(
                     WdlErrorCode::FunctionNotAvailableInVersion,
-                    format!(
-                        "Function '{}' was removed in WDL {}",
-                        name, removed
-                    ),
+                    format!("Function '{}' was removed in WDL {}", name, removed),
                 );
             }
         }
@@ -681,11 +705,7 @@ impl ValidatorRunner {
             if a.len() != b.len() {
                 self.add_error(
                     WdlErrorCode::InvalidFunctionArguments,
-                    format!(
-                        "zip: array lengths differ ({} vs {})",
-                        a.len(),
-                        b.len()
-                    ),
+                    format!("zip: array lengths differ ({} vs {})", a.len(), b.len()),
                 );
             }
         }
@@ -826,8 +846,7 @@ impl ValidatorRunner {
             return;
         }
         if let Some(ty) = self.infer_type(&op.arguments[0]) {
-            if !matches!(&ty, WdlType::Primitive(p) if p.primitive_kind == WdlPrimitiveKind::Int)
-            {
+            if !matches!(&ty, WdlType::Primitive(p) if p.primitive_kind == WdlPrimitiveKind::Int) {
                 self.add_error(
                     WdlErrorCode::InvalidFunctionArguments,
                     "range: argument must be Int",
@@ -863,8 +882,7 @@ impl ValidatorRunner {
             }
         }
         if let Some(ty) = self.infer_type(&op.arguments[1]) {
-            if !matches!(&ty, WdlType::Primitive(p) if p.primitive_kind == WdlPrimitiveKind::Int)
-            {
+            if !matches!(&ty, WdlType::Primitive(p) if p.primitive_kind == WdlPrimitiveKind::Int) {
                 self.add_error(
                     WdlErrorCode::InvalidFunctionArguments,
                     "chunk: second argument must be Int",
@@ -1195,7 +1213,11 @@ impl ValidatorRunner {
                     if i < 0 || i >= items.len() as i64 {
                         self.add_error(
                             WdlErrorCode::UnknownReference,
-                            format!("Array index {} is out of bounds (length {})", i, items.len()),
+                            format!(
+                                "Array index {} is out of bounds (length {})",
+                                i,
+                                items.len()
+                            ),
                         );
                     }
                 }
@@ -1207,10 +1229,7 @@ impl ValidatorRunner {
                         let key_str = format!("{:?}", idx_val);
                         let found = pairs.iter().any(|(k, _)| format!("{:?}", k) == key_str);
                         if !found {
-                            self.add_error(
-                                WdlErrorCode::UnknownReference,
-                                "Map key not found",
-                            );
+                            self.add_error(WdlErrorCode::UnknownReference, "Map key not found");
                         }
                     }
                 }
@@ -1226,10 +1245,7 @@ impl ValidatorRunner {
                         if !outputs.contains(&member) {
                             self.add_error(
                                 WdlErrorCode::UnknownReference,
-                                format!(
-                                    "Unknown member '{}' on call output '{}'",
-                                    member, name
-                                ),
+                                format!("Unknown member '{}' on call output '{}'", member, name),
                             );
                         }
                     } else if let Some(WdlType::TypeRef(tr)) =
@@ -1304,10 +1320,7 @@ impl ValidatorRunner {
                     if !self.is_boolean(t) {
                         self.add_error(
                             WdlErrorCode::TypeMismatch,
-                            format!(
-                                "Operator '{}' requires Boolean operands",
-                                op.to_wdl_str()
-                            ),
+                            format!("Operator '{}' requires Boolean operands", op.to_wdl_str()),
                         );
                         return;
                     }
@@ -1316,10 +1329,7 @@ impl ValidatorRunner {
                     if !self.is_boolean(t) {
                         self.add_error(
                             WdlErrorCode::TypeMismatch,
-                            format!(
-                                "Operator '{}' requires Boolean operands",
-                                op.to_wdl_str()
-                            ),
+                            format!("Operator '{}' requires Boolean operands", op.to_wdl_str()),
                         );
                     }
                 }
@@ -1333,10 +1343,7 @@ impl ValidatorRunner {
                     if !self.is_numeric(t) {
                         self.add_error(
                             WdlErrorCode::TypeMismatch,
-                            format!(
-                                "Operator '{}' requires numeric operands",
-                                op.to_wdl_str()
-                            ),
+                            format!("Operator '{}' requires numeric operands", op.to_wdl_str()),
                         );
                         return;
                     }
@@ -1345,10 +1352,7 @@ impl ValidatorRunner {
                     if !self.is_numeric(t) {
                         self.add_error(
                             WdlErrorCode::TypeMismatch,
-                            format!(
-                                "Operator '{}' requires numeric operands",
-                                op.to_wdl_str()
-                            ),
+                            format!("Operator '{}' requires numeric operands", op.to_wdl_str()),
                         );
                     }
                 }
@@ -1380,10 +1384,7 @@ impl ValidatorRunner {
                     }
                 }
             }
-            BinaryOperator::Lt
-            | BinaryOperator::Lte
-            | BinaryOperator::Gt
-            | BinaryOperator::Gte => {
+            BinaryOperator::Lt | BinaryOperator::Lte | BinaryOperator::Gt | BinaryOperator::Gte => {
                 if !self.are_order_comparable(lt, rt) {
                     self.add_error(
                         WdlErrorCode::TypeMismatch,
@@ -1465,13 +1466,17 @@ impl ValidatorRunner {
                     for decl in &inp.elements {
                         match decl {
                             InputDeclaration::Unbound(d) => {
-                                contract.input_types.insert(d.name.clone(), d.wdl_type.clone());
+                                contract
+                                    .input_types
+                                    .insert(d.name.clone(), d.wdl_type.clone());
                                 if !d.wdl_type.is_optional() {
                                     contract.required_inputs.insert(d.name.clone());
                                 }
                             }
                             InputDeclaration::Bound(d) => {
-                                contract.input_types.insert(d.name.clone(), d.wdl_type.clone());
+                                contract
+                                    .input_types
+                                    .insert(d.name.clone(), d.wdl_type.clone());
                                 // has default → not required
                             }
                         }
@@ -1480,7 +1485,9 @@ impl ValidatorRunner {
                 WdlTaskElement::Output(out) => {
                     for decl in &out.elements {
                         contract.outputs.insert(decl.name.clone());
-                        contract.output_types.insert(decl.name.clone(), decl.wdl_type.clone());
+                        contract
+                            .output_types
+                            .insert(decl.name.clone(), decl.wdl_type.clone());
                     }
                 }
                 WdlTaskElement::BoundDeclaration(d) => {
@@ -1503,13 +1510,17 @@ impl ValidatorRunner {
                     for decl in &inp.elements {
                         match decl {
                             InputDeclaration::Unbound(d) => {
-                                contract.input_types.insert(d.name.clone(), d.wdl_type.clone());
+                                contract
+                                    .input_types
+                                    .insert(d.name.clone(), d.wdl_type.clone());
                                 if !d.wdl_type.is_optional() {
                                     contract.required_inputs.insert(d.name.clone());
                                 }
                             }
                             InputDeclaration::Bound(d) => {
-                                contract.input_types.insert(d.name.clone(), d.wdl_type.clone());
+                                contract
+                                    .input_types
+                                    .insert(d.name.clone(), d.wdl_type.clone());
                             }
                         }
                     }
@@ -1517,7 +1528,9 @@ impl ValidatorRunner {
                 WdlWorkflowElement::Output(out) => {
                     for decl in &out.elements {
                         contract.outputs.insert(decl.name.clone());
-                        contract.output_types.insert(decl.name.clone(), decl.wdl_type.clone());
+                        contract
+                            .output_types
+                            .insert(decl.name.clone(), decl.wdl_type.clone());
                     }
                 }
                 _ => {}
@@ -1558,7 +1571,10 @@ impl ValidatorRunner {
             if existing_wdl != shape.ordered_member_type_wdl {
                 self.add_error(
                     WdlErrorCode::GenericSemanticError,
-                    format!("Struct '{}' is incompatible with imported definition", s.name),
+                    format!(
+                        "Struct '{}' is incompatible with imported definition",
+                        s.name
+                    ),
                 );
             }
             return;
@@ -1570,7 +1586,8 @@ impl ValidatorRunner {
             members_types.insert(name.clone(), ty.clone());
         }
         self.struct_members.insert(s.name.clone(), members_set);
-        self.struct_member_types.insert(s.name.clone(), members_types);
+        self.struct_member_types
+            .insert(s.name.clone(), members_types);
     }
 
     fn index_local_enum(&mut self, en: &WdlEnum) {
@@ -1645,8 +1662,7 @@ impl ValidatorRunner {
                     // a single `import { A as X, B as Y } from "..."` statement.
                     let mut seen: HashSet<String> = HashSet::new();
                     for member in &mem_imp.members {
-                        let local_name =
-                            member.alias.as_deref().unwrap_or(member.member.as_str());
+                        let local_name = member.alias.as_deref().unwrap_or(member.member.as_str());
                         if !seen.insert(local_name.to_string()) {
                             self.add_error(
                                 WdlErrorCode::DuplicateDefinition,
@@ -1655,10 +1671,7 @@ impl ValidatorRunner {
                         } else if local_names.contains(local_name) {
                             self.add_error(
                                 WdlErrorCode::DuplicateDefinition,
-                                format!(
-                                    "Import alias '{}' conflicts with local name",
-                                    local_name
-                                ),
+                                format!("Import alias '{}' conflicts with local name", local_name),
                             );
                         }
                     }
@@ -1679,9 +1692,7 @@ impl ValidatorRunner {
             };
 
             // Version compatibility
-            if let (Some(doc_ver), Some(imp_ver)) =
-                (doc.wdl_version, imported_doc.wdl_version)
-            {
+            if let (Some(doc_ver), Some(imp_ver)) = (doc.wdl_version, imported_doc.wdl_version) {
                 if doc_ver.major() != imp_ver.major() || imp_ver.minor() > doc_ver.minor() {
                     self.add_error(
                         WdlErrorCode::GenericSemanticError,
@@ -1702,9 +1713,7 @@ impl ValidatorRunner {
                         let exists = imported_doc
                             .structs()
                             .any(|s| s.name == alias_member.member)
-                            || imported_doc
-                                .enums()
-                                .any(|e| e.name == alias_member.member);
+                            || imported_doc.enums().any(|e| e.name == alias_member.member);
                         if !exists {
                             self.add_error(
                                 WdlErrorCode::UnknownReference,
@@ -1738,11 +1747,15 @@ impl ValidatorRunner {
                 WdlImport::Star(_) => {
                     for t in imported_doc.tasks() {
                         let contract = self.build_task_contract(t);
-                        self.callable_contracts.entry(t.name.clone()).or_insert(contract);
+                        self.callable_contracts
+                            .entry(t.name.clone())
+                            .or_insert(contract);
                     }
                     for w in imported_doc.workflows() {
                         let contract = self.build_workflow_contract(w);
-                        self.callable_contracts.entry(w.name.clone()).or_insert(contract);
+                        self.callable_contracts
+                            .entry(w.name.clone())
+                            .or_insert(contract);
                     }
                     for s in imported_doc.structs() {
                         self.index_local_struct(s);
@@ -1756,14 +1769,10 @@ impl ValidatorRunner {
                     for member in &members {
                         let local_name = member.alias.as_deref().unwrap_or(&member.member);
                         // Validate the member exists in the imported doc
-                        let task_match =
-                            imported_doc.tasks().find(|t| t.name == member.member);
-                        let wf_match =
-                            imported_doc.workflows().find(|w| w.name == member.member);
-                        let struct_match =
-                            imported_doc.structs().any(|s| s.name == member.member);
-                        let enum_match =
-                            imported_doc.enums().any(|e| e.name == member.member);
+                        let task_match = imported_doc.tasks().find(|t| t.name == member.member);
+                        let wf_match = imported_doc.workflows().find(|w| w.name == member.member);
+                        let struct_match = imported_doc.structs().any(|s| s.name == member.member);
+                        let enum_match = imported_doc.enums().any(|e| e.name == member.member);
                         if task_match.is_none()
                             && wf_match.is_none()
                             && !struct_match
@@ -1778,10 +1787,12 @@ impl ValidatorRunner {
                             );
                         } else if let Some(t) = task_match {
                             let contract = self.build_task_contract(t);
-                            self.callable_contracts.insert(local_name.to_string(), contract);
+                            self.callable_contracts
+                                .insert(local_name.to_string(), contract);
                         } else if let Some(w) = wf_match {
                             let contract = self.build_workflow_contract(w);
-                            self.callable_contracts.insert(local_name.to_string(), contract);
+                            self.callable_contracts
+                                .insert(local_name.to_string(), contract);
                         }
                     }
                 }
@@ -1851,57 +1862,58 @@ impl ValidatorRunner {
         let expr = decl.expression.clone();
         self.validate_expression(&expr);
 
-        // Static/Lint: type mismatch check
-        if self.mode != ValidatorMode::Base {
-            // non_empty array check
-            if let WdlType::Array(arr) = &decl.wdl_type {
-                if arr.non_empty {
-                    if let WdlExpression::ArrayLit(lit) = &decl.expression {
-                        if lit.entries.is_empty() {
-                            self.add_error(
-                                WdlErrorCode::TypeMismatch,
-                                format!(
-                                    "Array+ type '{}' cannot be assigned an empty array",
-                                    type_to_wdl(&decl.wdl_type)
-                                ),
-                            );
-                        }
-                    }
-                }
-                // Check all array literal elements are assignable to the member type
+        // Assignability check — runs at all validation levels (matches Java
+        // `WdlValidator.validateBoundDeclaration` baseline behavior).
+        if let WdlType::Array(arr) = &decl.wdl_type {
+            if arr.non_empty {
                 if let WdlExpression::ArrayLit(lit) = &decl.expression {
-                    let elem_ty = arr.member_type.clone();
-                    let entries = lit.entries.clone();
-                    for entry in &entries {
-                        if !self.is_assignable_from(&elem_ty, entry) {
-                            let actual = self.infer_type(entry);
-                            self.add_error(
-                                WdlErrorCode::TypeMismatch,
-                                format!(
-                                    "Array element type '{}' is not assignable to '{}'",
-                                    actual.as_ref().map(type_to_wdl).unwrap_or_else(|| "null".into()),
-                                    type_to_wdl(&elem_ty)
-                                ),
-                            );
-                        }
+                    if lit.entries.is_empty() {
+                        self.add_error(
+                            WdlErrorCode::TypeMismatch,
+                            format!(
+                                "Array+ type '{}' cannot be assigned an empty array",
+                                type_to_wdl(&decl.wdl_type)
+                            ),
+                        );
                     }
                 }
             }
-            let expected = decl.wdl_type.clone();
-            if !self.is_assignable_from(&expected, &decl.expression) {
-                let actual_ty = self.infer_type(&decl.expression);
-                self.add_error(
-                    WdlErrorCode::TypeMismatch,
-                    format!(
-                        "Cannot assign {} to type '{}'",
-                        actual_ty
-                            .as_ref()
-                            .map(type_to_wdl)
-                            .unwrap_or_else(|| "null".into()),
-                        type_to_wdl(&expected)
-                    ),
-                );
+            // Check all array literal elements are assignable to the member type
+            if let WdlExpression::ArrayLit(lit) = &decl.expression {
+                let elem_ty = arr.member_type.clone();
+                let entries = lit.entries.clone();
+                for entry in &entries {
+                    if !self.is_assignable_from(&elem_ty, entry) {
+                        let actual = self.infer_type(entry);
+                        self.add_error(
+                            WdlErrorCode::TypeMismatch,
+                            format!(
+                                "Array element type '{}' is not assignable to '{}'",
+                                actual
+                                    .as_ref()
+                                    .map(type_to_wdl)
+                                    .unwrap_or_else(|| "null".into()),
+                                type_to_wdl(&elem_ty)
+                            ),
+                        );
+                    }
+                }
             }
+        }
+        let expected = decl.wdl_type.clone();
+        if !self.is_assignable_from(&expected, &decl.expression) {
+            let actual_ty = self.infer_type(&decl.expression);
+            self.add_error(
+                WdlErrorCode::TypeMismatch,
+                format!(
+                    "Cannot assign {} to type '{}'",
+                    actual_ty
+                        .as_ref()
+                        .map(type_to_wdl)
+                        .unwrap_or_else(|| "null".into()),
+                    type_to_wdl(&expected)
+                ),
+            );
         }
 
         // Add to scope
@@ -1941,64 +1953,57 @@ impl ValidatorRunner {
 
                 if c.private_declarations.contains(&root_key) {
                     self.add_error(
-                        WdlErrorCode::GenericSemanticError,
-                        format!(
-                            "Call input '{}' refers to a private declaration",
-                            root_key
-                        ),
+                        WdlErrorCode::UnknownReference,
+                        format!("Call input '{}' refers to a private declaration", root_key),
                     );
                     continue;
                 }
 
-                if self.mode != ValidatorMode::Base && !c.input_types.contains_key(&root_key) {
+                // Unknown call input — runs at baseline (matches Java
+                // `WdlValidator.processWorkflowCall` L829-836).
+                if !c.input_types.contains_key(&root_key) {
                     self.add_error(
                         WdlErrorCode::UnknownReference,
-                        format!(
-                            "Unknown call input '{}' for target '{}'",
-                            root_key, target
-                        ),
+                        format!("Unknown call input '{}' for target '{}'", root_key, target),
                     );
                 }
 
                 if let Some(expr) = &input.value {
                     let expr_clone = expr.clone();
                     self.validate_expression(&expr_clone);
-                    if self.mode != ValidatorMode::Base {
-                        if let Some(expected_ty) = c.input_types.get(&root_key).cloned() {
-                            if !self.is_assignable_from(&expected_ty, &expr_clone) {
-                                self.add_error(
-                                    WdlErrorCode::TypeMismatch,
-                                    format!(
-                                        "Call input '{}': expression type does not match expected type '{}'",
-                                        root_key,
-                                        type_to_wdl(&expected_ty)
-                                    ),
-                                );
-                            }
+                    // Call-input assignability — runs at baseline (matches
+                    // Java L841-849).
+                    if let Some(expected_ty) = c.input_types.get(&root_key).cloned() {
+                        if !self.is_assignable_from(&expected_ty, &expr_clone) {
+                            self.add_error(
+                                WdlErrorCode::TypeMismatch,
+                                format!(
+                                    "Call input '{}': expression type does not match expected type '{}'",
+                                    root_key,
+                                    type_to_wdl(&expected_ty)
+                                ),
+                            );
                         }
                     }
                 }
             }
 
-            // Check required inputs were provided
-            if self.mode != ValidatorMode::Base {
-                let provided: HashSet<String> = call
-                    .inputs
-                    .iter()
-                    .map(|i| {
-                        i.key.splitn(2, '.').next().unwrap_or(&i.key).to_string()
-                    })
-                    .collect();
-                for req in &c.required_inputs {
-                    if !provided.contains(req) {
-                        self.add_error(
-                            WdlErrorCode::GenericSemanticError,
-                            format!(
-                                "Required input '{}' not provided for call '{}'",
-                                req, call_name
-                            ),
-                        );
-                    }
+            // Missing required call input — runs at baseline (matches Java
+            // L854-864), emits `UnknownReference`.
+            let provided: HashSet<String> = call
+                .inputs
+                .iter()
+                .map(|i| i.key.splitn(2, '.').next().unwrap_or(&i.key).to_string())
+                .collect();
+            for req in &c.required_inputs {
+                if !provided.contains(req) {
+                    self.add_error(
+                        WdlErrorCode::UnknownReference,
+                        format!(
+                            "Required input '{}' not provided for call '{}'",
+                            req, call_name
+                        ),
+                    );
                 }
             }
 
@@ -2006,7 +2011,8 @@ impl ValidatorRunner {
             let outputs = c.outputs.clone();
             let output_types = c.output_types.clone();
             self.call_outputs.insert(call_name.clone(), outputs);
-            self.call_output_types.insert(call_name.clone(), output_types);
+            self.call_output_types
+                .insert(call_name.clone(), output_types);
         } else {
             // No contract (unresolved import or unknown callable) — do not
             // insert into call_outputs so member access checks are skipped.
@@ -2130,7 +2136,10 @@ impl ValidatorRunner {
             if !seen_keys.insert(input.key.clone()) {
                 self.add_error(
                     WdlErrorCode::DuplicateDefinition,
-                    format!("Duplicate call input key '{}' in call '{}'", input.key, call_name),
+                    format!(
+                        "Duplicate call input key '{}' in call '{}'",
+                        input.key, call_name
+                    ),
                 );
             }
         }
@@ -2472,7 +2481,15 @@ impl ValidatorRunner {
         self.known_type_names.clear();
 
         // Built-in primitive types are always known
-        for name in &["Boolean", "Int", "Float", "String", "File", "Directory", "Object"] {
+        for name in &[
+            "Boolean",
+            "Int",
+            "Float",
+            "String",
+            "File",
+            "Directory",
+            "Object",
+        ] {
             self.known_type_names.insert(name.to_string());
         }
 
@@ -2619,9 +2636,7 @@ impl ValidatorRunner {
     ) {
         for comp in &lit.components {
             if let WdlStringComponent::Placeholder {
-                expression,
-                option,
-                ..
+                expression, option, ..
             } = comp
             {
                 self.collect_expression_usage(expression, usage);
@@ -2689,7 +2704,10 @@ impl ValidatorRunner {
         if !body_usage.used_variables.contains(&scatter.name) {
             self.add_error(
                 WdlErrorCode::LintUnusedScatterVariable,
-                format!("Scatter variable '{}' is never used in its body", scatter.name),
+                format!(
+                    "Scatter variable '{}' is never used in its body",
+                    scatter.name
+                ),
             );
         }
 
