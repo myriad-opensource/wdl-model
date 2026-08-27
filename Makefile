@@ -13,17 +13,38 @@ spec_examples:
 
 .PHONY: build test package lint format clean
 
-build: spec_examples build-go build-java build-python build-typescript
+build: spec_examples build-go build-java build-python build-typescript build-rust
 
-test: spec_examples test-go test-java test-python test-typescript
+test: spec_examples test-go test-java test-python test-typescript test-rust
 
 package: spec_examples package-go package-java package-python package-typescript
 
-lint: lint-go lint-java lint-python lint-typescript
+lint: lint-go lint-java lint-python lint-typescript lint-rust
 
-format: format-go format-java format-python format-typescript
+format: format-go format-java format-python format-typescript format-rust
 
-clean: clean-go clean-java clean-python clean-typescript
+clean: clean-go clean-java clean-python clean-typescript clean-rust
+
+# -----------------------------------------------------------------------------
+# Rust
+# -----------------------------------------------------------------------------
+
+.PHONY: build-rust test-rust lint-rust format-rust clean-rust
+
+build-rust: spec_examples
+	@(cd rust && $(MAKE) build)
+
+test-rust: spec_examples
+	@(cd rust && $(MAKE) test)
+
+lint-rust:
+	@(cd rust && $(MAKE) lint)
+
+format-rust:
+	@(cd rust && $(MAKE) format)
+
+clean-rust:
+	@(cd rust && $(MAKE) clean)
 
 # -----------------------------------------------------------------------------
 # Go
