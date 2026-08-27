@@ -26,3 +26,7 @@ rstest = "0.23"
 
 [build-dependencies]
 # build.rs invokes antlr4-rust-tool.jar via std::process::Command (requires Java)
+
+[toolchain]
+channel = "1.95.0"
+components = ["rust-src"]
