@@ -7,7 +7,9 @@
 use std::path::Path;
 use wdl_model::definitions::{WdlTaskElement, WdlWorkflowElement};
 use wdl_model::expressions::{BinaryOperator, WdlExpression};
-use wdl_model::loader::{load_from_path, load_from_path_with_resolver, load_from_str, load_from_str_with_resolver};
+use wdl_model::loader::{
+    load_from_path, load_from_path_with_resolver, load_from_str, load_from_str_with_resolver,
+};
 use wdl_model::resolvers::FilesystemResolver;
 use wdl_model::version::WdlVersion;
 
@@ -218,10 +220,14 @@ fn first_workflow_declaration_expr(name: &str) -> WdlExpression {
     let doc = load_from_path(&grammar_behavior_fixture(name))
         .unwrap_or_else(|e| panic!("load {name}: {e}"));
     let workflows: Vec<_> = doc.workflows().collect();
-    let wf = workflows.first().unwrap_or_else(|| panic!("{name}: no workflow"));
+    let wf = workflows
+        .first()
+        .unwrap_or_else(|| panic!("{name}: no workflow"));
     match wf.elements.first() {
         Some(WdlWorkflowElement::BoundDeclaration(d)) => d.expression.clone(),
-        other => panic!("{name}: expected first workflow element to be a bound declaration, got {other:?}"),
+        other => panic!(
+            "{name}: expected first workflow element to be a bound declaration, got {other:?}"
+        ),
     }
 }
 
@@ -271,36 +277,49 @@ fn parses_logical_or_chains_as_left_associative() {
     assert!(matches!(left.right.as_ref(), WdlExpression::BoolLit(false)));
 }
 
-// Unlike Java (whose grammar treats these as strictly reserved and rejects
-// them as identifiers), this implementation's grammar deliberately supports a
-// broad "keyword compatibility set" (`anyIdentBase` in
-// `wdl-grammar/antlr4/v1/WdlV1Parser.g4`), allowing many keywords to be used
-// as plain identifiers. These fixtures therefore parse successfully here,
-// which is the intentional, documented divergence from Java rather than a
-// gap — confirmed empirically before writing these assertions.
+// The grammar reserves these keywords: `strictIdentifier` resolves to a plain
+// `IDENTIFIER` token, so keywords cannot be used as identifiers or metadata
+// keys. (An earlier `anyIdentBase` rule did permit them, but it was removed
+// upstream in wdl-grammar commit 9622412 along with the expression
+// associativity fix.) Mirrors Java `WdlV1LoaderGrammarBehaviorTest`'s
+// `rejectsReservedKeywordAs*` tests over the same shared fixtures.
 
 #[test]
-fn accepts_reserved_keyword_as_declaration_identifier_task() {
-    load_from_path(&grammar_behavior_fixture("keyword_decl_identifier_task.wdl"))
-        .expect("keyword_decl_identifier_task.wdl should parse: keywords are valid identifiers in this grammar");
+fn rejects_reserved_keyword_as_declaration_identifier_task() {
+    assert!(
+        load_from_path(&grammar_behavior_fixture(
+            "keyword_decl_identifier_task.wdl"
+        ))
+        .is_err(),
+        "keyword_decl_identifier_task.wdl should fail to parse: keywords are reserved"
+    );
 }
 
 #[test]
-fn accepts_reserved_keyword_as_declaration_identifier_if() {
-    load_from_path(&grammar_behavior_fixture("keyword_decl_identifier_if.wdl"))
-        .expect("keyword_decl_identifier_if.wdl should parse: keywords are valid identifiers in this grammar");
+fn rejects_reserved_keyword_as_declaration_identifier_if() {
+    assert!(
+        load_from_path(&grammar_behavior_fixture("keyword_decl_identifier_if.wdl")).is_err(),
+        "keyword_decl_identifier_if.wdl should fail to parse: keywords are reserved"
+    );
 }
 
 #[test]
-fn accepts_reserved_keyword_as_task_input_identifier() {
-    load_from_path(&grammar_behavior_fixture("keyword_task_input_in.wdl"))
-        .expect("keyword_task_input_in.wdl should parse: keywords are valid identifiers in this grammar");
+fn rejects_reserved_keyword_as_task_input_identifier() {
+    assert!(
+        load_from_path(&grammar_behavior_fixture("keyword_task_input_in.wdl")).is_err(),
+        "keyword_task_input_in.wdl should fail to parse: keywords are reserved"
+    );
 }
 
 #[test]
-fn accepts_reserved_keyword_as_metadata_key() {
-    load_from_path(&grammar_behavior_fixture("keyword_metadata_key_version.wdl"))
-        .expect("keyword_metadata_key_version.wdl should parse: keywords are valid metadata keys in this grammar");
+fn rejects_reserved_keyword_as_metadata_key() {
+    assert!(
+        load_from_path(&grammar_behavior_fixture(
+            "keyword_metadata_key_version.wdl"
+        ))
+        .is_err(),
+        "keyword_metadata_key_version.wdl should fail to parse: keywords are reserved"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -318,8 +337,8 @@ fn recursively_loads_imported_documents_into_map() {
     let child = loader_imports_fixture("recursive/child.wdl");
     let grandchild = loader_imports_fixture("recursive/grandchild.wdl");
 
-    let root_doc = load_from_path_with_resolver(&root, &FilesystemResolver)
-        .expect("load recursive/root.wdl");
+    let root_doc =
+        load_from_path_with_resolver(&root, &FilesystemResolver).expect("load recursive/root.wdl");
 
     assert_eq!(root_doc.imported_documents.len(), 1);
     let child_doc = root_doc.imported_documents.values().next().unwrap();
@@ -328,8 +347,13 @@ fn recursively_loads_imported_documents_into_map() {
         .as_ref()
         .expect("child source_location should be set");
     assert_eq!(
-        std::fs::canonicalize(url::Url::parse(child_location).unwrap().to_file_path().unwrap())
-            .unwrap(),
+        std::fs::canonicalize(
+            url::Url::parse(child_location)
+                .unwrap()
+                .to_file_path()
+                .unwrap()
+        )
+        .unwrap(),
         std::fs::canonicalize(&child).unwrap()
     );
 
@@ -341,7 +365,10 @@ fn recursively_loads_imported_documents_into_map() {
         .expect("grandchild source_location should be set");
     assert_eq!(
         std::fs::canonicalize(
-            url::Url::parse(grandchild_location).unwrap().to_file_path().unwrap()
+            url::Url::parse(grandchild_location)
+                .unwrap()
+                .to_file_path()
+                .unwrap()
         )
         .unwrap(),
         std::fs::canonicalize(&grandchild).unwrap()

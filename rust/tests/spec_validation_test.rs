@@ -101,6 +101,24 @@ const BASE_VALIDATOR_KNOWN_GAP: &[&str] = &[
     "illegal_access_fail.wdl",
 ];
 
+/// Spec examples that legitimately fail to *parse* because they use reserved
+/// keywords as identifiers (`String in`, `version` as a metadata key,
+/// `task.description`, `task.previous`).
+///
+/// The grammar reserves these: `strictIdentifier` resolves to a plain
+/// `IDENTIFIER` token. These files are therefore invalid under the grammar even
+/// though they ship as spec examples. Java carries the identical allowlist as
+/// `parseFailuresExpectedWithReservedKeywordsV1_2` / `...V1_3`
+/// (`WdlV12SpecExamplesTest.java:43`, `WdlV13SpecExamplesTest.java:43`);
+/// `test_task_previous.wdl` appears only in v1.3, and skipping a file absent
+/// from v1.2 is a no-op.
+const RESERVED_KEYWORD_PARSE_FAILURE: &[&str] = &[
+    "test_find_task.wdl",
+    "test_meta_values.wdl",
+    "test_runtime_info_task.wdl",
+    "test_task_previous.wdl",
+];
+
 // ── Helper ────────────────────────────────────────────────────────────────────
 
 fn spec_dir(version: &str) -> PathBuf {
@@ -116,6 +134,7 @@ fn run_version(version: &str) {
     let skip_validate: HashSet<&str> = VALIDATOR_FALSE_POSITIVE
         .iter()
         .chain(P1_INFERENCE_GAP.iter())
+        .chain(RESERVED_KEYWORD_PARSE_FAILURE.iter())
         .copied()
         .collect();
 

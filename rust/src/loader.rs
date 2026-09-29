@@ -16,6 +16,7 @@ use antlr4rust::error_strategy::{DefaultErrorStrategy, ErrorStrategy};
 use antlr4rust::errors::ANTLRError;
 use antlr4rust::input_stream::InputStream;
 use antlr4rust::parser::ParserNodeType;
+use antlr4rust::parser_rule_context::ParserRuleContext;
 use antlr4rust::tree::{ErrorNode, ParseTree, ParseTreeVisitor, TerminalNode, VisitableDyn};
 use antlr4rust::{tid, Parser};
 
@@ -42,10 +43,13 @@ use crate::sections::{
 };
 use crate::statements::{
     WdlBoundDeclaration, WdlCall, WdlCallInput, WdlConditional, WdlConditionalElseIf,
-    WdlDeclaration, WdlImport, WdlImportMember, WdlImportMembers, WdlImportStar,
-    WdlImportStandard, WdlScatter, WdlStatement,
+    WdlDeclaration, WdlImport, WdlImportMember, WdlImportMembers, WdlImportStandard, WdlImportStar,
+    WdlScatter, WdlStatement,
 };
-use crate::types::{WdlArrayType, WdlMapType, WdlPairType, WdlPrimitiveKind, WdlPrimitiveType, WdlType, WdlTypeRefType};
+use crate::types::{
+    WdlArrayType, WdlMapType, WdlPairType, WdlPrimitiveKind, WdlPrimitiveType, WdlType,
+    WdlTypeRefType,
+};
 use crate::version::WdlVersion;
 
 // ============================================================================
@@ -383,60 +387,62 @@ impl WdlV1Builder {
         }
     }
 
-    /// Combines `left op right` into a left-associative `WdlBinaryOperation`.
+    /// Pops a contiguous expression chain produced by rules like `expr (op expr)*`.
     ///
-    /// The grammar's binary-operator rules (`logicalOrExpression`,
-    /// `additiveExpression`, etc.) are right-recursive — e.g.
-    /// `additiveExpression : multiplicativeExpression (PLUS|MINUS)
-    /// additiveExpression | multiplicativeExpression` — so a naive
-    /// visitor that just nests `BinaryOp { left, op, right }` at each level
-    /// produces a *right*-associative tree: `1 - 2 - 3` would build as
-    /// `1 - (2 - 3)` (evaluating to `2`) instead of the WDL-spec-correct
-    /// left-associative `(1 - 2) - 3` (evaluating to `-4`).
+    /// Children are visited left-to-right, so the stack holds them in that
+    /// order and popping yields them reversed; this restores source order.
+    /// Mirrors Java `WdlV1Loader.popExpressionChain`.
+    fn pop_expression_chain(&mut self, expression_count: usize) -> Vec<WdlExpression> {
+        let mut expressions = Vec::with_capacity(expression_count);
+        for _ in 0..expression_count {
+            expressions.push(self.pop_expr());
+        }
+        expressions.reverse();
+        expressions
+    }
+
+    /// Collects the operator symbols of a flat `expr op expr op expr` context.
     ///
-    /// Since visitor calls happen bottom-up (post-order), by the time an
-    /// outer call reaches this helper, `right` is already a fully
-    /// left-associated chain for everything to its right. Re-associating one
-    /// more element onto the left just requires descending along `right`'s
-    /// left spine (recursively) until we're no longer looking at a
-    /// same-precedence-level binary op, inserting `left op <that node>`
-    /// there, and rebuilding the spine above it — see the worked example in
-    /// `rust_parser_fix_plan.md`'s phase 5 notes.
+    /// The six binary-operator rules alternate operand/operator children, so
+    /// the operators are exactly the odd-indexed children. Mirrors Java
+    /// `WdlV1Loader.collectBinaryOperatorSymbols`.
+    fn collect_binary_operator_symbols<'input, Ctx>(ctx: &Ctx) -> Vec<String>
+    where
+        Ctx:
+            ParserRuleContext<'input, TF = LocalTokenFactory<'input>, Ctx = WdlV1ParserContextType>,
+    {
+        let children: Vec<_> = ctx.get_children().collect();
+        children
+            .iter()
+            .skip(1)
+            .step_by(2)
+            .map(|child| child.get_text())
+            .collect()
+    }
+
+    /// Left-folds an operand chain into nested `WdlBinaryOperation`s, so that
+    /// `1 - 2 - 3` becomes `(1 - 2) - 3`. Mirrors Java
+    /// `WdlV1Loader.foldBinaryOperations`.
     ///
     /// Intentionally not used for `**` (power/exponentiation), which is
-    /// correctly right-associative per WDL/math convention, matching the
-    /// grammar's natural shape.
-    fn combine_left_associative(
-        left: WdlExpression,
-        op: BinaryOperator,
-        right: WdlExpression,
-        same_level: impl Fn(BinaryOperator) -> bool + Copy,
+    /// right-associative per WDL/math convention and keeps the grammar's
+    /// natural right-recursive shape.
+    fn fold_binary_operations(
+        expressions: Vec<WdlExpression>,
+        operators: Vec<BinaryOperator>,
     ) -> WdlExpression {
-        if let WdlExpression::BinaryOp(inner) = right {
-            if same_level(inner.operator) {
-                let WdlBinaryOperation {
-                    left: inner_left,
-                    operator: inner_op,
-                    right: inner_right,
-                } = *inner;
-                let new_left = Self::combine_left_associative(left, op, *inner_left, same_level);
-                return WdlExpression::BinaryOp(Box::new(WdlBinaryOperation {
-                    left: Box::new(new_left),
-                    operator: inner_op,
-                    right: inner_right,
-                }));
-            }
-            return WdlExpression::BinaryOp(Box::new(WdlBinaryOperation {
-                left: Box::new(left),
-                operator: op,
-                right: Box::new(WdlExpression::BinaryOp(inner)),
+        let mut iter = expressions.into_iter();
+        let mut folded = iter
+            .next()
+            .expect("fold_binary_operations: expression chain must be non-empty");
+        for (operator, right) in operators.into_iter().zip(iter) {
+            folded = WdlExpression::BinaryOp(Box::new(WdlBinaryOperation {
+                left: Box::new(folded),
+                operator,
+                right: Box::new(right),
             }));
         }
-        WdlExpression::BinaryOp(Box::new(WdlBinaryOperation {
-            left: Box::new(left),
-            operator: op,
-            right: Box::new(right),
-        }))
+        folded
     }
 
     // -------------------------------------------------------------------------
@@ -608,10 +614,7 @@ impl WdlV1Builder {
     fn pop_task(&mut self) -> WdlTask {
         match self.stack.pop() {
             Some(StackItem::Task(t)) => t,
-            other => panic!(
-                "pop_task: expected Task, got {}",
-                stack_item_name(&other)
-            ),
+            other => panic!("pop_task: expected Task, got {}", stack_item_name(&other)),
         }
     }
 
@@ -638,20 +641,14 @@ impl WdlV1Builder {
     fn pop_enum(&mut self) -> WdlEnum {
         match self.stack.pop() {
             Some(StackItem::Enum(e)) => e,
-            other => panic!(
-                "pop_enum: expected Enum, got {}",
-                stack_item_name(&other)
-            ),
+            other => panic!("pop_enum: expected Enum, got {}", stack_item_name(&other)),
         }
     }
 
     fn pop_input(&mut self) -> WdlInput {
         match self.stack.pop() {
             Some(StackItem::Input(i)) => i,
-            other => panic!(
-                "pop_input: expected Input, got {}",
-                stack_item_name(&other)
-            ),
+            other => panic!("pop_input: expected Input, got {}", stack_item_name(&other)),
         }
     }
 
@@ -738,10 +735,7 @@ impl WdlV1Builder {
     fn pop_call(&mut self) -> WdlCall {
         match self.stack.pop() {
             Some(StackItem::Call(c)) => c,
-            other => panic!(
-                "pop_call: expected Call, got {}",
-                stack_item_name(&other)
-            ),
+            other => panic!("pop_call: expected Call, got {}", stack_item_name(&other)),
         }
     }
 
@@ -1136,8 +1130,8 @@ impl<'input> WdlV1ParserVisitor<'input> for WdlV1Builder {
         // collect alias members (importAlias nodes push ImportMember)
         let mut members = self.drain_while_import_member();
         members.reverse(); // drain already reverses; reverse again for Java-compat addFirst behaviour
-        // Actually drain_while already returns source-order (reversed LIFO), so keep it.
-        // Re-reverse to match: Java adds with push (LIFO front), so order is reversed.
+                           // Actually drain_while already returns source-order (reversed LIFO), so keep it.
+                           // Re-reverse to match: Java adds with push (LIFO front), so order is reversed.
         members.reverse();
 
         let alias = if ctx.KEYWORD_AS().is_some() {
@@ -1267,9 +1261,7 @@ impl<'input> WdlV1ParserVisitor<'input> for WdlV1Builder {
         self.stack.push(StackItem::Struct(WdlStruct::new(name)));
         self.visit_children(ctx);
         let s = self.pop_struct();
-        self.document
-            .elements
-            .push(WdlDocumentElement::Struct(s));
+        self.document.elements.push(WdlDocumentElement::Struct(s));
     }
 
     fn visit_structItemMemberDeclaration(
@@ -1397,16 +1389,20 @@ impl<'input> WdlV1ParserVisitor<'input> for WdlV1Builder {
     }
 
     fn visit_enumMultilineString(&mut self, ctx: &EnumMultilineStringContext<'input>) {
-        self.stack.push(StackItem::StringLiteral(WdlStringLiteral::new(
-            StringDelimiter::Multiline,
-        )));
+        self.stack
+            .push(StackItem::StringLiteral(WdlStringLiteral::new(
+                StringDelimiter::Multiline,
+            )));
         self.visit_children(ctx);
         let components = self.drain_while_string_component();
         let idx = self.find_string_literal_idx();
         self.string_literal_at_mut(idx).components = components;
     }
 
-    fn visit_enumMultilineStringElement(&mut self, ctx: &EnumMultilineStringElementContext<'input>) {
+    fn visit_enumMultilineStringElement(
+        &mut self,
+        ctx: &EnumMultilineStringElementContext<'input>,
+    ) {
         if let Some(tok) = ctx.MULTILINE_STRING_TEXT() {
             self.stack
                 .push(StackItem::StringComponent(WdlStringComponent::Text(
@@ -1445,7 +1441,9 @@ impl<'input> WdlV1ParserVisitor<'input> for WdlV1Builder {
         self.visit_children(ctx);
         let entries = self.drain_expr_above(sentinel);
         self.stack
-            .push(StackItem::Expr(WdlExpression::ArrayLit(WdlArrayLiteral { entries })));
+            .push(StackItem::Expr(WdlExpression::ArrayLit(WdlArrayLiteral {
+                entries,
+            })));
     }
 
     fn visit_enumMapLiteral(&mut self, ctx: &EnumMapLiteralContext<'input>) {
@@ -1461,7 +1459,9 @@ impl<'input> WdlV1ParserVisitor<'input> for WdlV1Builder {
             })
             .collect();
         self.stack
-            .push(StackItem::Expr(WdlExpression::MapLit(WdlMapLiteral { entries })));
+            .push(StackItem::Expr(WdlExpression::MapLit(WdlMapLiteral {
+                entries,
+            })));
     }
 
     fn visit_enumMapLiteralItem(&mut self, ctx: &EnumMapLiteralItemContext<'input>) {
@@ -1482,9 +1482,10 @@ impl<'input> WdlV1ParserVisitor<'input> for WdlV1Builder {
             .unwrap_or_default();
         self.visit_children(ctx);
         let value = self.pop_expr();
-        self.stack.push(StackItem::MetadataEntry(
-            WdlMetadataEntry::with_value(key, value),
-        ));
+        self.stack
+            .push(StackItem::MetadataEntry(WdlMetadataEntry::with_value(
+                key, value,
+            )));
     }
 
     fn visit_enumStructLiteral(&mut self, ctx: &EnumStructLiteralContext<'input>) {
@@ -1494,7 +1495,10 @@ impl<'input> WdlV1ParserVisitor<'input> for WdlV1Builder {
             .unwrap_or_default();
         // Push a struct-literal sentinel as Expr
         self.stack.push(StackItem::Expr(WdlExpression::StructLit(
-            WdlStructLiteral { name, entries: Vec::new() },
+            WdlStructLiteral {
+                name,
+                entries: Vec::new(),
+            },
         )));
         self.visit_children(ctx);
         // struct entries are added inline by visit_enumStructLiteralItem
@@ -1508,7 +1512,10 @@ impl<'input> WdlV1ParserVisitor<'input> for WdlV1Builder {
         self.visit_children(ctx);
         let value = self.pop_expr();
         // find the struct literal sentinel and add entry directly
-        let entry = WdlStructEntry { key, value: Some(value) };
+        let entry = WdlStructEntry {
+            key,
+            value: Some(value),
+        };
         for item in self.stack.iter_mut().rev() {
             if let StackItem::Expr(WdlExpression::StructLit(sl)) = item {
                 sl.entries.push(entry);
@@ -1522,12 +1529,13 @@ impl<'input> WdlV1ParserVisitor<'input> for WdlV1Builder {
         self.visit_children(ctx);
         let right = self.pop_expr();
         let left = self.pop_expr();
-        self.stack.push(StackItem::Expr(WdlExpression::PairLit(Box::new(
-            WdlPairLiteral {
-                left: Box::new(left),
-                right: Box::new(right),
-            },
-        ))));
+        self.stack
+            .push(StackItem::Expr(WdlExpression::PairLit(Box::new(
+                WdlPairLiteral {
+                    left: Box::new(left),
+                    right: Box::new(right),
+                },
+            ))));
     }
 
     // =========================================================================
@@ -1618,7 +1626,8 @@ impl<'input> WdlV1ParserVisitor<'input> for WdlV1Builder {
         let optional = ctx.QUESTION_MARK().is_some();
         let mut pt = WdlPairType::new(left_type, right_type);
         pt.optional = optional;
-        self.stack.push(StackItem::Type(WdlType::Pair(Box::new(pt))));
+        self.stack
+            .push(StackItem::Type(WdlType::Pair(Box::new(pt))));
     }
 
     fn visit_objectType(&mut self, ctx: &ObjectTypeContext<'input>) {
@@ -1698,14 +1707,18 @@ impl<'input> WdlV1ParserVisitor<'input> for WdlV1Builder {
         self.visit_children(ctx);
         let inp = self.pop_input();
         let idx = self.find_task_idx();
-        self.task_at_mut(idx).elements.push(WdlTaskElement::Input(inp));
+        self.task_at_mut(idx)
+            .elements
+            .push(WdlTaskElement::Input(inp));
     }
 
     fn visit_taskOutputSection(&mut self, ctx: &TaskOutputSectionContext<'input>) {
         self.visit_children(ctx);
         let out = self.pop_output();
         let idx = self.find_task_idx();
-        self.task_at_mut(idx).elements.push(WdlTaskElement::Output(out));
+        self.task_at_mut(idx)
+            .elements
+            .push(WdlTaskElement::Output(out));
     }
 
     fn visit_taskCommandSection(&mut self, ctx: &TaskCommandSectionContext<'input>) {
@@ -1716,7 +1729,9 @@ impl<'input> WdlV1ParserVisitor<'input> for WdlV1Builder {
         self.visit_children(ctx);
         let cmd = self.pop_command();
         let idx = self.find_task_idx();
-        self.task_at_mut(idx).elements.push(WdlTaskElement::Command(cmd));
+        self.task_at_mut(idx)
+            .elements
+            .push(WdlTaskElement::Command(cmd));
     }
 
     fn visit_commandSection(&mut self, ctx: &CommandSectionContext<'input>) {
@@ -1740,9 +1755,10 @@ impl<'input> WdlV1ParserVisitor<'input> for WdlV1Builder {
                 break;
             }
         }
-        self.stack.push(StackItem::StringLiteral(WdlStringLiteral::new(
-            StringDelimiter::Multiline,
-        )));
+        self.stack
+            .push(StackItem::StringLiteral(WdlStringLiteral::new(
+                StringDelimiter::Multiline,
+            )));
         self.visit_children(ctx);
         let components = self.drain_while_string_component();
         match self.stack.last_mut() {
@@ -1758,9 +1774,10 @@ impl<'input> WdlV1ParserVisitor<'input> for WdlV1Builder {
                 break;
             }
         }
-        self.stack.push(StackItem::StringLiteral(WdlStringLiteral::new(
-            StringDelimiter::DoubleQuote,
-        )));
+        self.stack
+            .push(StackItem::StringLiteral(WdlStringLiteral::new(
+                StringDelimiter::DoubleQuote,
+            )));
         self.visit_children(ctx);
         let components = self.drain_while_string_component();
         match self.stack.last_mut() {
@@ -1773,7 +1790,9 @@ impl<'input> WdlV1ParserVisitor<'input> for WdlV1Builder {
         self.visit_children(ctx);
         let rt = self.pop_runtime();
         let idx = self.find_task_idx();
-        self.task_at_mut(idx).elements.push(WdlTaskElement::Runtime(rt));
+        self.task_at_mut(idx)
+            .elements
+            .push(WdlTaskElement::Runtime(rt));
     }
 
     fn visit_runtimeSection(&mut self, ctx: &RuntimeSectionContext<'input>) {
@@ -1794,7 +1813,9 @@ impl<'input> WdlV1ParserVisitor<'input> for WdlV1Builder {
             .map(|id| id.get_text().to_owned())
             .unwrap_or_default();
         self.stack
-            .push(StackItem::RuntimeEntry(WdlRuntimeEntry::with_value(key, value)));
+            .push(StackItem::RuntimeEntry(WdlRuntimeEntry::with_value(
+                key, value,
+            )));
     }
 
     fn visit_taskRequirementsSection(&mut self, ctx: &TaskRequirementsSectionContext<'input>) {
@@ -1824,15 +1845,18 @@ impl<'input> WdlV1ParserVisitor<'input> for WdlV1Builder {
             .strictIdentifier()
             .map(|id| id.get_text().to_owned())
             .unwrap_or_default();
-        self.stack
-            .push(StackItem::RequirementEntry(WdlRequirementEntry::with_value(key, value)));
+        self.stack.push(StackItem::RequirementEntry(
+            WdlRequirementEntry::with_value(key, value),
+        ));
     }
 
     fn visit_taskHintsSection(&mut self, ctx: &TaskHintsSectionContext<'input>) {
         self.visit_children(ctx);
         let hints = self.pop_task_hints();
         let idx = self.find_task_idx();
-        self.task_at_mut(idx).elements.push(WdlTaskElement::Hints(hints));
+        self.task_at_mut(idx)
+            .elements
+            .push(WdlTaskElement::Hints(hints));
     }
 
     fn visit_hintsSectionTask(&mut self, ctx: &HintsSectionTaskContext<'input>) {
@@ -1870,7 +1894,9 @@ impl<'input> WdlV1ParserVisitor<'input> for WdlV1Builder {
         self.visit_children(ctx);
         let value = self.pop_expr();
         self.stack
-            .push(StackItem::MetadataEntry(WdlMetadataEntry::with_value(key, value)));
+            .push(StackItem::MetadataEntry(WdlMetadataEntry::with_value(
+                key, value,
+            )));
     }
 
     fn visit_inputHintsObjectTask(&mut self, ctx: &InputHintsObjectTaskContext<'input>) {
@@ -1887,7 +1913,9 @@ impl<'input> WdlV1ParserVisitor<'input> for WdlV1Builder {
         self.visit_children(ctx);
         let value = self.pop_expr();
         self.stack
-            .push(StackItem::MetadataEntry(WdlMetadataEntry::with_value(key, value)));
+            .push(StackItem::MetadataEntry(WdlMetadataEntry::with_value(
+                key, value,
+            )));
     }
 
     fn visit_outputHintsObjectTask(&mut self, ctx: &OutputHintsObjectTaskContext<'input>) {
@@ -1904,21 +1932,28 @@ impl<'input> WdlV1ParserVisitor<'input> for WdlV1Builder {
         self.visit_children(ctx);
         let value = self.pop_expr();
         self.stack
-            .push(StackItem::MetadataEntry(WdlMetadataEntry::with_value(key, value)));
+            .push(StackItem::MetadataEntry(WdlMetadataEntry::with_value(
+                key, value,
+            )));
     }
 
     fn visit_taskHintsArray(&mut self, ctx: &TaskHintsArrayContext<'input>) {
         let sentinel = self.stack.len();
         self.visit_children(ctx);
         let entries = self.drain_expr_above(sentinel);
-        self.stack.push(StackItem::Expr(WdlExpression::ArrayLit(WdlArrayLiteral { entries })));
+        self.stack
+            .push(StackItem::Expr(WdlExpression::ArrayLit(WdlArrayLiteral {
+                entries,
+            })));
     }
 
     fn visit_taskMetadataSection(&mut self, ctx: &TaskMetadataSectionContext<'input>) {
         self.visit_children(ctx);
         let meta = self.pop_metadata();
         let idx = self.find_task_idx();
-        self.task_at_mut(idx).elements.push(WdlTaskElement::Meta(meta));
+        self.task_at_mut(idx)
+            .elements
+            .push(WdlTaskElement::Meta(meta));
     }
 
     fn visit_taskParameterMetadataSection(
@@ -1977,7 +2012,9 @@ impl<'input> WdlV1ParserVisitor<'input> for WdlV1Builder {
         self.visit_children(ctx);
         let value = self.pop_expr();
         self.stack
-            .push(StackItem::MetadataEntry(WdlMetadataEntry::with_value(key, value)));
+            .push(StackItem::MetadataEntry(WdlMetadataEntry::with_value(
+                key, value,
+            )));
     }
 
     fn visit_metadataObject(&mut self, ctx: &MetadataObjectContext<'input>) {
@@ -1991,7 +2028,9 @@ impl<'input> WdlV1ParserVisitor<'input> for WdlV1Builder {
         self.visit_children(ctx);
         let entries = self.drain_expr_above(sentinel);
         self.stack
-            .push(StackItem::Expr(WdlExpression::ArrayLit(WdlArrayLiteral { entries })));
+            .push(StackItem::Expr(WdlExpression::ArrayLit(WdlArrayLiteral {
+                entries,
+            })));
     }
 
     // visit_metadataValue: default visit_children is sufficient (child pushes expression)
@@ -2059,7 +2098,9 @@ impl<'input> WdlV1ParserVisitor<'input> for WdlV1Builder {
         self.visit_children(ctx);
         let value = self.pop_expr();
         self.stack
-            .push(StackItem::WorkflowHint(WdlWorkflowHint::with_value(key, value)));
+            .push(StackItem::WorkflowHint(WdlWorkflowHint::with_value(
+                key, value,
+            )));
     }
 
     fn visit_workflowHintValueObject(&mut self, ctx: &WorkflowHintValueObjectContext<'input>) {
@@ -2072,7 +2113,9 @@ impl<'input> WdlV1ParserVisitor<'input> for WdlV1Builder {
         self.visit_children(ctx);
         let entries = self.drain_while_expr();
         self.stack
-            .push(StackItem::Expr(WdlExpression::ArrayLit(WdlArrayLiteral { entries })));
+            .push(StackItem::Expr(WdlExpression::ArrayLit(WdlArrayLiteral {
+                entries,
+            })));
     }
 
     fn visit_hintsObjectWorkflow(&mut self, ctx: &HintsObjectWorkflowContext<'input>) {
@@ -2089,7 +2132,9 @@ impl<'input> WdlV1ParserVisitor<'input> for WdlV1Builder {
         self.visit_children(ctx);
         let value = self.pop_expr();
         self.stack
-            .push(StackItem::MetadataEntry(WdlMetadataEntry::with_value(key, value)));
+            .push(StackItem::MetadataEntry(WdlMetadataEntry::with_value(
+                key, value,
+            )));
     }
 
     fn visit_workflowHintsArray(&mut self, ctx: &WorkflowHintsArrayContext<'input>) {
@@ -2097,7 +2142,9 @@ impl<'input> WdlV1ParserVisitor<'input> for WdlV1Builder {
         self.visit_children(ctx);
         let entries = self.drain_expr_above(sentinel);
         self.stack
-            .push(StackItem::Expr(WdlExpression::ArrayLit(WdlArrayLiteral { entries })));
+            .push(StackItem::Expr(WdlExpression::ArrayLit(WdlArrayLiteral {
+                entries,
+            })));
     }
 
     fn visit_workflowMetadataSection(&mut self, ctx: &WorkflowMetadataSectionContext<'input>) {
@@ -2162,9 +2209,7 @@ impl<'input> WdlV1ParserVisitor<'input> for WdlV1Builder {
     }
 
     fn visit_callAlias(&mut self, ctx: &CallAliasContext<'input>) {
-        let alias = ctx
-            .strictIdentifier()
-            .map(|id| id.get_text().to_owned());
+        let alias = ctx.strictIdentifier().map(|id| id.get_text().to_owned());
         let idx = self.find_call_idx();
         self.call_at_mut(idx).alias = alias;
     }
@@ -2287,10 +2332,7 @@ impl<'input> WdlV1ParserVisitor<'input> for WdlV1Builder {
     // Scatter Statements
     // =========================================================================
 
-    fn visit_workflowScatterStatement(
-        &mut self,
-        ctx: &WorkflowScatterStatementContext<'input>,
-    ) {
+    fn visit_workflowScatterStatement(&mut self, ctx: &WorkflowScatterStatementContext<'input>) {
         self.visit_children(ctx);
         let scatter = self.pop_scatter();
         let idx = self.find_workflow_idx();
@@ -2361,9 +2403,10 @@ impl<'input> WdlV1ParserVisitor<'input> for WdlV1Builder {
     }
 
     fn visit_multilineString(&mut self, ctx: &MultilineStringContext<'input>) {
-        self.stack.push(StackItem::StringLiteral(WdlStringLiteral::new(
-            StringDelimiter::Multiline,
-        )));
+        self.stack
+            .push(StackItem::StringLiteral(WdlStringLiteral::new(
+                StringDelimiter::Multiline,
+            )));
         self.visit_children(ctx);
         let components = self.drain_while_string_component();
         match self.stack.last_mut() {
@@ -2409,7 +2452,11 @@ impl<'input> WdlV1ParserVisitor<'input> for WdlV1Builder {
     }
 
     fn visit_stringPlaceholder(&mut self, ctx: &StringPlaceholderContext<'input>) {
-        let symbol = match ctx.STRING_PLACEHOLDER_START().map(|t| t.get_text().to_owned()).as_deref() {
+        let symbol = match ctx
+            .STRING_PLACEHOLDER_START()
+            .map(|t| t.get_text().to_owned())
+            .as_deref()
+        {
             Some("~{") => PlaceholderSymbol::Tilde,
             Some("${") => PlaceholderSymbol::Dollar,
             other => panic!("visit_stringPlaceholder: unknown symbol {:?}", other),
@@ -2422,12 +2469,13 @@ impl<'input> WdlV1ParserVisitor<'input> for WdlV1Builder {
         } else {
             None
         };
-        self.stack
-            .push(StackItem::StringComponent(WdlStringComponent::Placeholder {
+        self.stack.push(StackItem::StringComponent(
+            WdlStringComponent::Placeholder {
                 symbol,
                 option,
                 expression: Box::new(expression),
-            }));
+            },
+        ));
     }
 
     fn visit_stringPlaceholderOptionSepDefault(
@@ -2569,12 +2617,13 @@ impl<'input> WdlV1ParserVisitor<'input> for WdlV1Builder {
         } else {
             None
         };
-        self.stack
-            .push(StackItem::StringComponent(WdlStringComponent::Placeholder {
+        self.stack.push(StackItem::StringComponent(
+            WdlStringComponent::Placeholder {
                 symbol,
                 option,
                 expression: Box::new(expression),
-            }));
+            },
+        ));
     }
 
     // =========================================================================
@@ -2608,7 +2657,8 @@ impl<'input> WdlV1ParserVisitor<'input> for WdlV1Builder {
         } else {
             text.parse().unwrap_or(0)
         };
-        self.stack.push(StackItem::Expr(WdlExpression::IntLit(value)));
+        self.stack
+            .push(StackItem::Expr(WdlExpression::IntLit(value)));
     }
 
     fn visit_numberLiteralFloat(&mut self, ctx: &NumberLiteralFloatContext<'input>) {
@@ -2638,7 +2688,9 @@ impl<'input> WdlV1ParserVisitor<'input> for WdlV1Builder {
         self.visit_children(ctx);
         let entries = self.drain_expr_above(sentinel);
         self.stack
-            .push(StackItem::Expr(WdlExpression::ArrayLit(WdlArrayLiteral { entries })));
+            .push(StackItem::Expr(WdlExpression::ArrayLit(WdlArrayLiteral {
+                entries,
+            })));
     }
 
     fn visit_mapLiteral(&mut self, ctx: &MapLiteralContext<'input>) {
@@ -2660,7 +2712,9 @@ impl<'input> WdlV1ParserVisitor<'input> for WdlV1Builder {
             })
             .collect();
         self.stack
-            .push(StackItem::Expr(WdlExpression::MapLit(WdlMapLiteral { entries })));
+            .push(StackItem::Expr(WdlExpression::MapLit(WdlMapLiteral {
+                entries,
+            })));
     }
 
     // visit_mapLiteralItem: default visit_children pushes key then value as Expr items
@@ -2679,7 +2733,9 @@ impl<'input> WdlV1ParserVisitor<'input> for WdlV1Builder {
         self.visit_children(ctx);
         let value = self.pop_expr();
         self.stack
-            .push(StackItem::MetadataEntry(WdlMetadataEntry::with_value(key, value)));
+            .push(StackItem::MetadataEntry(WdlMetadataEntry::with_value(
+                key, value,
+            )));
     }
 
     fn visit_structLiteral(&mut self, ctx: &StructLiteralContext<'input>) {
@@ -2688,7 +2744,10 @@ impl<'input> WdlV1ParserVisitor<'input> for WdlV1Builder {
             .map(|id| id.get_text().to_owned())
             .unwrap_or_default();
         self.stack.push(StackItem::Expr(WdlExpression::StructLit(
-            WdlStructLiteral { name, entries: Vec::new() },
+            WdlStructLiteral {
+                name,
+                entries: Vec::new(),
+            },
         )));
         self.visit_children(ctx);
         // entries are added inline by visit_structLiteralItem
@@ -2701,7 +2760,10 @@ impl<'input> WdlV1ParserVisitor<'input> for WdlV1Builder {
             .unwrap_or_default();
         self.visit_children(ctx);
         let value = self.pop_expr();
-        let entry = WdlStructEntry { key, value: Some(value) };
+        let entry = WdlStructEntry {
+            key,
+            value: Some(value),
+        };
         for item in self.stack.iter_mut().rev() {
             if let StackItem::Expr(WdlExpression::StructLit(sl)) = item {
                 sl.entries.push(entry);
@@ -2715,12 +2777,13 @@ impl<'input> WdlV1ParserVisitor<'input> for WdlV1Builder {
         self.visit_children(ctx);
         let right = self.pop_expr();
         let left = self.pop_expr();
-        self.stack.push(StackItem::Expr(WdlExpression::PairLit(Box::new(
-            WdlPairLiteral {
-                left: Box::new(left),
-                right: Box::new(right),
-            },
-        ))));
+        self.stack
+            .push(StackItem::Expr(WdlExpression::PairLit(Box::new(
+                WdlPairLiteral {
+                    left: Box::new(left),
+                    right: Box::new(right),
+                },
+            ))));
     }
 
     // visit_groupedExpression: default visit_children — inner expression stays on stack
@@ -2768,7 +2831,8 @@ impl<'input> WdlV1ParserVisitor<'input> for WdlV1Builder {
         args.reverse(); // restore source order
         let mut func = WdlFunctionCallOperation::new(fn_name);
         func.arguments = args;
-        self.stack.push(StackItem::Expr(WdlExpression::FuncOp(func)));
+        self.stack
+            .push(StackItem::Expr(WdlExpression::FuncOp(func)));
     }
 
     fn visit_ifExpression(&mut self, ctx: &IfExpressionContext<'input>) {
@@ -2776,88 +2840,104 @@ impl<'input> WdlV1ParserVisitor<'input> for WdlV1Builder {
         let false_value = self.pop_expr();
         let true_value = self.pop_expr();
         let condition = self.pop_expr();
-        self.stack.push(StackItem::Expr(WdlExpression::TernaryOp(Box::new(
-            WdlTernaryOperation {
-                condition: Box::new(condition),
-                true_value: Box::new(true_value),
-                false_value: Box::new(false_value),
-            },
-        ))));
+        self.stack
+            .push(StackItem::Expr(WdlExpression::TernaryOp(Box::new(
+                WdlTernaryOperation {
+                    condition: Box::new(condition),
+                    true_value: Box::new(true_value),
+                    false_value: Box::new(false_value),
+                },
+            ))));
     }
 
     // Binary operators
+    //
+    // Each of these rules has the shape `operand (OP operand)*`, so the context
+    // also matches a bare operand with zero operators. In that case the operand
+    // the children left on the stack is already the result and the rule acts as
+    // a transparent passthrough — this replaces the `#...ExprNone` alternatives
+    // the grammar used to carry. Mirrors Java `WdlV1Loader`'s early `return`.
 
     fn visit_logicalOrExprOperation(&mut self, ctx: &LogicalOrExprOperationContext<'input>) {
         self.visit_children(ctx);
-        let right = self.pop_expr();
-        let left = self.pop_expr();
-        let expr = Self::combine_left_associative(left, BinaryOperator::Or, right, |op| {
-            op == BinaryOperator::Or
-        });
+        let operator_count = ctx.LOGICAL_OR_all().len();
+        if operator_count == 0 {
+            return;
+        }
+        let expressions = self.pop_expression_chain(operator_count + 1);
+        let operators = vec![BinaryOperator::Or; operator_count];
+        let expr = Self::fold_binary_operations(expressions, operators);
         self.stack.push(StackItem::Expr(expr));
     }
 
     fn visit_logicalAndExprOperation(&mut self, ctx: &LogicalAndExprOperationContext<'input>) {
         self.visit_children(ctx);
-        let right = self.pop_expr();
-        let left = self.pop_expr();
-        let expr = Self::combine_left_associative(left, BinaryOperator::And, right, |op| {
-            op == BinaryOperator::And
-        });
+        let operator_count = ctx.LOGICAL_AND_all().len();
+        if operator_count == 0 {
+            return;
+        }
+        let expressions = self.pop_expression_chain(operator_count + 1);
+        let operators = vec![BinaryOperator::And; operator_count];
+        let expr = Self::fold_binary_operations(expressions, operators);
         self.stack.push(StackItem::Expr(expr));
     }
 
     fn visit_equalityExprOperation(&mut self, ctx: &EqualityExprOperationContext<'input>) {
         self.visit_children(ctx);
-        let right = self.pop_expr();
-        let left = self.pop_expr();
-        let op = if ctx.EQUAL().is_some() {
-            BinaryOperator::Eq
-        } else {
-            BinaryOperator::Neq
-        };
-        let expr = Self::combine_left_associative(left, op, right, |op| {
-            matches!(op, BinaryOperator::Eq | BinaryOperator::Neq)
-        });
+        let symbols = Self::collect_binary_operator_symbols(ctx);
+        if symbols.is_empty() {
+            return;
+        }
+        let expressions = self.pop_expression_chain(symbols.len() + 1);
+        let operators = symbols
+            .iter()
+            .map(|symbol| match symbol.as_str() {
+                "==" => BinaryOperator::Eq,
+                "!=" => BinaryOperator::Neq,
+                other => panic!("Unknown equality operator: {other}"),
+            })
+            .collect();
+        let expr = Self::fold_binary_operations(expressions, operators);
         self.stack.push(StackItem::Expr(expr));
     }
 
     fn visit_comparisonExprOperation(&mut self, ctx: &ComparisonExprOperationContext<'input>) {
         self.visit_children(ctx);
-        let right = self.pop_expr();
-        let left = self.pop_expr();
-        let op = if ctx.LESS().is_some() {
-            BinaryOperator::Lt
-        } else if ctx.LESS_EQUAL().is_some() {
-            BinaryOperator::Lte
-        } else if ctx.GREATER().is_some() {
-            BinaryOperator::Gt
-        } else if ctx.GREATER_EQUAL().is_some() {
-            BinaryOperator::Gte
-        } else {
-            panic!("visit_comparisonExprOperation: unknown operator");
-        };
-        let expr = Self::combine_left_associative(left, op, right, |op| {
-            matches!(
-                op,
-                BinaryOperator::Lt | BinaryOperator::Lte | BinaryOperator::Gt | BinaryOperator::Gte
-            )
-        });
+        let symbols = Self::collect_binary_operator_symbols(ctx);
+        if symbols.is_empty() {
+            return;
+        }
+        let expressions = self.pop_expression_chain(symbols.len() + 1);
+        let operators = symbols
+            .iter()
+            .map(|symbol| match symbol.as_str() {
+                "<" => BinaryOperator::Lt,
+                "<=" => BinaryOperator::Lte,
+                ">" => BinaryOperator::Gt,
+                ">=" => BinaryOperator::Gte,
+                other => panic!("Unknown comparison operator: {other}"),
+            })
+            .collect();
+        let expr = Self::fold_binary_operations(expressions, operators);
         self.stack.push(StackItem::Expr(expr));
     }
 
     fn visit_additiveExprOperation(&mut self, ctx: &AdditiveExprOperationContext<'input>) {
         self.visit_children(ctx);
-        let right = self.pop_expr();
-        let left = self.pop_expr();
-        let op = if ctx.PLUS().is_some() {
-            BinaryOperator::Add
-        } else {
-            BinaryOperator::Subtract
-        };
-        let expr = Self::combine_left_associative(left, op, right, |op| {
-            matches!(op, BinaryOperator::Add | BinaryOperator::Subtract)
-        });
+        let symbols = Self::collect_binary_operator_symbols(ctx);
+        if symbols.is_empty() {
+            return;
+        }
+        let expressions = self.pop_expression_chain(symbols.len() + 1);
+        let operators = symbols
+            .iter()
+            .map(|symbol| match symbol.as_str() {
+                "+" => BinaryOperator::Add,
+                "-" => BinaryOperator::Subtract,
+                other => panic!("Unknown additive operator: {other}"),
+            })
+            .collect();
+        let expr = Self::fold_binary_operations(expressions, operators);
         self.stack.push(StackItem::Expr(expr));
     }
 
@@ -2866,23 +2946,21 @@ impl<'input> WdlV1ParserVisitor<'input> for WdlV1Builder {
         ctx: &MultiplicativeExprOperationContext<'input>,
     ) {
         self.visit_children(ctx);
-        let right = self.pop_expr();
-        let left = self.pop_expr();
-        let op = if ctx.ASTERISK().is_some() {
-            BinaryOperator::Multiply
-        } else if ctx.SLASH().is_some() {
-            BinaryOperator::Divide
-        } else if ctx.PERCENT().is_some() {
-            BinaryOperator::Modulo
-        } else {
-            panic!("visit_multiplicativeExprOperation: unknown operator");
-        };
-        let expr = Self::combine_left_associative(left, op, right, |op| {
-            matches!(
-                op,
-                BinaryOperator::Multiply | BinaryOperator::Divide | BinaryOperator::Modulo
-            )
-        });
+        let symbols = Self::collect_binary_operator_symbols(ctx);
+        if symbols.is_empty() {
+            return;
+        }
+        let expressions = self.pop_expression_chain(symbols.len() + 1);
+        let operators = symbols
+            .iter()
+            .map(|symbol| match symbol.as_str() {
+                "*" => BinaryOperator::Multiply,
+                "/" => BinaryOperator::Divide,
+                "%" => BinaryOperator::Modulo,
+                other => panic!("Unknown multiplicative operator: {other}"),
+            })
+            .collect();
+        let expr = Self::fold_binary_operations(expressions, operators);
         self.stack.push(StackItem::Expr(expr));
     }
 
@@ -2890,13 +2968,14 @@ impl<'input> WdlV1ParserVisitor<'input> for WdlV1Builder {
         self.visit_children(ctx);
         let right = self.pop_expr();
         let left = self.pop_expr();
-        self.stack.push(StackItem::Expr(WdlExpression::BinaryOp(Box::new(
-            WdlBinaryOperation {
-                left: Box::new(left),
-                operator: BinaryOperator::Power,
-                right: Box::new(right),
-            },
-        ))));
+        self.stack
+            .push(StackItem::Expr(WdlExpression::BinaryOp(Box::new(
+                WdlBinaryOperation {
+                    left: Box::new(left),
+                    operator: BinaryOperator::Power,
+                    right: Box::new(right),
+                },
+            ))));
     }
 
     fn visit_unaryExprOperation(&mut self, ctx: &UnaryExprOperationContext<'input>) {
@@ -2909,24 +2988,26 @@ impl<'input> WdlV1ParserVisitor<'input> for WdlV1Builder {
         } else {
             panic!("visit_unaryExprOperation: unknown operator");
         };
-        self.stack.push(StackItem::Expr(WdlExpression::UnaryOp(Box::new(
-            WdlUnaryOperation {
-                operator: op,
-                operand: Box::new(operand),
-            },
-        ))));
+        self.stack
+            .push(StackItem::Expr(WdlExpression::UnaryOp(Box::new(
+                WdlUnaryOperation {
+                    operator: op,
+                    operand: Box::new(operand),
+                },
+            ))));
     }
 
     fn visit_postfixExprArrayIndex(&mut self, ctx: &PostfixExprArrayIndexContext<'input>) {
         self.visit_children(ctx);
         let index = self.pop_expr();
         let target = self.pop_expr();
-        self.stack.push(StackItem::Expr(WdlExpression::IdxOp(Box::new(
-            WdlIndexAccessOperation {
-                target: Box::new(target),
-                index: Box::new(index),
-            },
-        ))));
+        self.stack
+            .push(StackItem::Expr(WdlExpression::IdxOp(Box::new(
+                WdlIndexAccessOperation {
+                    target: Box::new(target),
+                    index: Box::new(index),
+                },
+            ))));
     }
 
     fn visit_postfixExprField(&mut self, ctx: &PostfixExprFieldContext<'input>) {
@@ -2936,12 +3017,13 @@ impl<'input> WdlV1ParserVisitor<'input> for WdlV1Builder {
             .strictIdentifier()
             .map(|id| id.get_text().to_owned())
             .unwrap_or_default();
-        self.stack.push(StackItem::Expr(WdlExpression::MemberOp(Box::new(
-            WdlMemberAccessOperation {
-                target: Box::new(target),
-                member,
-            },
-        ))));
+        self.stack
+            .push(StackItem::Expr(WdlExpression::MemberOp(Box::new(
+                WdlMemberAccessOperation {
+                    target: Box::new(target),
+                    member,
+                },
+            ))));
     }
 }
 
