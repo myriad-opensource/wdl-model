@@ -82,13 +82,28 @@ impl StructShape {
 }
 
 /// Structural description of an enum.
+///
+/// The two choice collections serve deliberately different purposes and are
+/// rendered differently, mirroring Java's `enumShapes` / `enumChoiceNames` split
+/// (`WdlValidator.java:65-67`):
+///
+/// - `choice_names` answers "is this string a legal choice name?" — required by
+///   the `Enum` ← `String` coercion rule in WDL 1.3 `SPEC.md:1965`.
+/// - `choice_shapes` answers "are these two enums the same enum?" across imports.
 #[derive(Debug, Clone)]
 struct EnumShape {
     /// TODO(B1): never read — cross-import enum compatibility is collected into
     /// `enum_shapes` but never compared. Consumed by `is_compatible_with` below.
     #[allow(dead_code)]
     value_type_wdl: String,
-    choices: Vec<String>,
+    /// Bare choice names, e.g. `"Red"`. Drives the membership test in
+    /// `is_assignable_from`. Unordered: only `contains` is ever called.
+    choice_names: HashSet<String>,
+    /// Uniform `NAME=value` renderings, e.g. `"Red=\"#FF0000\""`, with `<none>`
+    /// for a valueless choice. Order is significant — compared as a sequence.
+    /// TODO(B1): written but not yet read; see `is_compatible_with`.
+    #[allow(dead_code)]
+    choice_shapes: Vec<String>,
 }
 
 impl EnumShape {
@@ -96,7 +111,7 @@ impl EnumShape {
     /// discarded. B1 implements the check that calls this.
     #[allow(dead_code)]
     fn is_compatible_with(&self, other: &EnumShape) -> bool {
-        self.value_type_wdl == other.value_type_wdl && self.choices == other.choices
+        self.value_type_wdl == other.value_type_wdl && self.choice_shapes == other.choice_shapes
     }
 }
 
@@ -478,12 +493,19 @@ impl ValidatorRunner {
 
         // Enum choice check — if the expected type is a TypeRef pointing at
         // a known enum, and the expression evaluates to a string constant,
-        // require the string to be one of the enum's declared choices.
+        // require the string to be one of the enum's declared choice *names*.
+        // WDL 1.3 `SPEC.md:1965`: for `Enum` ← `String`, the "`String` value must
+        // exactly match one of the enum's choice names".
         // Matches Java `WdlExpressionValidator.isAssignableFrom` L216-224.
         if let WdlType::TypeRef(tr) = expected {
             if let Some(enum_shape) = self.enum_shapes.get(&tr.reference_name) {
                 if let EvalValue::Str(s) = self.eval_expr(expr) {
-                    return enum_shape.choices.iter().any(|c| c == &s);
+                    // An empty name set means we have nothing to check against;
+                    // fall through rather than reject (Java guards the same way
+                    // with `choices != null && !choices.isEmpty()`).
+                    if !enum_shape.choice_names.is_empty() {
+                        return enum_shape.choice_names.contains(&s);
+                    }
                 }
                 // Unknown evaluation — fall through to type-based check
                 // (conservative: assume compatible if we can't evaluate).
@@ -1610,24 +1632,42 @@ impl ValidatorRunner {
         if self.enum_shapes.contains_key(&en.name) {
             return; // already indexed
         }
-        let vt_wdl = en.value_type.as_ref().map(type_to_wdl).unwrap_or_default();
-        let choices: Vec<String> = en
+        // Sentinels mirror Java `WdlValidator.EnumShape.from` (L1084-1093): an
+        // absent value type renders `<implicit>` and a valueless choice renders
+        // `<none>`, so the shape format is uniform and cannot collide with a
+        // real rendering.
+        let vt_wdl = en
+            .value_type
+            .as_ref()
+            .map(type_to_wdl)
+            .unwrap_or_else(|| "<implicit>".to_string());
+        let choice_shapes: Vec<String> = en
             .elements
             .iter()
             .map(|c| {
-                if let Some(v) = &c.value {
-                    use crate::processors::render::expression_to_wdl;
-                    format!("{}={}", c.name, expression_to_wdl(v))
-                } else {
-                    c.name.clone()
-                }
+                use crate::processors::render::expression_to_wdl;
+                let value = c
+                    .value
+                    .as_ref()
+                    .map(expression_to_wdl)
+                    .unwrap_or_else(|| "<none>".to_string());
+                format!("{}={}", c.name, value)
             })
+            .collect();
+        // Bare names only. Blank names are dropped, matching Java
+        // `enumChoiceNameSet` / `addIfNonBlank` (L627-631).
+        let choice_names: HashSet<String> = en
+            .elements
+            .iter()
+            .filter(|c| !c.name.trim().is_empty())
+            .map(|c| c.name.clone())
             .collect();
         self.enum_shapes.insert(
             en.name.clone(),
             EnumShape {
                 value_type_wdl: vt_wdl,
-                choices,
+                choice_names,
+                choice_shapes,
             },
         );
     }
