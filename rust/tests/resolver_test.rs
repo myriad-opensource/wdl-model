@@ -183,9 +183,6 @@ fn loader_populates_imported_documents_via_resolver() {
     let doc = wdl_model::loader::load_from_path_with_resolver(&root, &resolver)
         .expect("load should succeed");
 
-    assert_eq!(
-        doc.wdl_version,
-        Some(wdl_model::version::WdlVersion::V1_3)
-    );
+    assert_eq!(doc.wdl_version, Some(wdl_model::version::WdlVersion::V1_3));
     assert!(doc.imported_documents.is_empty(), "root.wdl has no imports");
 }

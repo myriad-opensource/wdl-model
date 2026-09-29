@@ -21,8 +21,8 @@ use crate::definitions::{WdlEnum, WdlStruct, WdlStructMember, WdlTask, WdlWorkfl
 use crate::document::WdlDocument;
 use crate::processors::base::WdlProcessor;
 use crate::processors::render::{
-    bound_declaration_to_wdl, expression_to_wdl, input_declaration_to_wdl,
-    string_literal_to_wdl, type_to_wdl,
+    bound_declaration_to_wdl, expression_to_wdl, input_declaration_to_wdl, string_literal_to_wdl,
+    type_to_wdl,
 };
 use crate::sections::{
     WdlCommand, WdlInput, WdlMetadata, WdlOutput, WdlParameterMetadata, WdlRequirements,
@@ -404,11 +404,7 @@ impl WdlProcessor for WdlAppendingProcessor {
         self.append("\n");
     }
 
-    fn process_struct_parameter_metadata(
-        &mut self,
-        _ctx: &WdlStruct,
-        node: &WdlParameterMetadata,
-    ) {
+    fn process_struct_parameter_metadata(&mut self, _ctx: &WdlStruct, node: &WdlParameterMetadata) {
         self.render_parameter_metadata(node);
     }
 
@@ -434,9 +430,7 @@ impl WdlProcessor for WdlAppendingProcessor {
                 WdlTaskElement::Output(s) => self.process_task_output(node, s),
                 WdlTaskElement::Command(s) => self.process_task_command(node, s),
                 WdlTaskElement::Meta(s) => self.process_task_metadata(node, s),
-                WdlTaskElement::ParameterMeta(s) => {
-                    self.process_task_parameter_metadata(node, s)
-                }
+                WdlTaskElement::ParameterMeta(s) => self.process_task_parameter_metadata(node, s),
                 WdlTaskElement::Requirements(s) => self.process_task_requirements(node, s),
                 WdlTaskElement::Runtime(s) => self.process_task_runtime(node, s),
                 WdlTaskElement::Hints(s) => self.process_task_hints(node, s),
@@ -468,11 +462,7 @@ impl WdlProcessor for WdlAppendingProcessor {
         self.append("\n");
     }
 
-    fn process_task_parameter_metadata(
-        &mut self,
-        _ctx: &WdlTask,
-        node: &WdlParameterMetadata,
-    ) {
+    fn process_task_parameter_metadata(&mut self, _ctx: &WdlTask, node: &WdlParameterMetadata) {
         self.render_parameter_metadata(node);
     }
 
@@ -535,9 +525,7 @@ impl WdlProcessor for WdlAppendingProcessor {
                     self.process_workflow_parameter_metadata(node, s)
                 }
                 WdlWorkflowElement::Call(s) => self.process_workflow_call(node, s),
-                WdlWorkflowElement::Conditional(s) => {
-                    self.process_workflow_conditional(node, s)
-                }
+                WdlWorkflowElement::Conditional(s) => self.process_workflow_conditional(node, s),
                 WdlWorkflowElement::Scatter(s) => self.process_workflow_scatter(node, s),
                 WdlWorkflowElement::Hints(s) => self.process_workflow_hints(node, s),
             }

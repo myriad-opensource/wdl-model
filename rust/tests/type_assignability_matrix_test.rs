@@ -32,8 +32,7 @@ fn fixture(name: &str) -> PathBuf {
 #[case("file_directory_from_string_ok.wdl")]
 #[case("struct_to_struct_coercion_ok.wdl")]
 fn accepts_compatible_assignment(#[case] name: &str) {
-    let doc = load_from_path(&fixture(name))
-        .unwrap_or_else(|e| panic!("load {name}: {e}"));
+    let doc = load_from_path(&fixture(name)).unwrap_or_else(|e| panic!("load {name}: {e}"));
     let mut stat = WdlStaticAnalysisValidator::new();
     assert!(
         stat.validate(&doc).is_ok(),
@@ -50,8 +49,7 @@ fn accepts_compatible_assignment(#[case] name: &str) {
 #[case("map_value_type_fail.wdl")]
 #[case("struct_to_struct_incompatible_fail.wdl")]
 fn rejects_incompatible_assignment(#[case] name: &str) {
-    let doc = load_from_path(&fixture(name))
-        .unwrap_or_else(|e| panic!("load {name}: {e}"));
+    let doc = load_from_path(&fixture(name)).unwrap_or_else(|e| panic!("load {name}: {e}"));
     let mut stat = WdlStaticAnalysisValidator::new();
     assert!(
         stat.validate(&doc).is_err(),

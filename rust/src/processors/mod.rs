@@ -31,21 +31,12 @@ pub mod render;
 // Re-export the most-used items at the module root for convenience.
 pub use appending::WdlAppendingProcessor;
 pub use base::{
-    WdlProcessor,
-    ResolvedImport,
-    import_namespace,
-    resolve_imported_enums,
-    resolve_imported_structs,
-    resolve_imported_tasks,
-    resolve_imported_workflows,
+    import_namespace, resolve_imported_enums, resolve_imported_structs, resolve_imported_tasks,
+    resolve_imported_workflows, ResolvedImport, WdlProcessor,
 };
 pub use expression::WdlExpressionProcessor;
 pub use function::WdlFunctionProcessor;
 pub use render::{
-    bound_declaration_to_wdl,
-    expression_to_wdl,
-    input_declaration_to_wdl,
-    string_literal_to_wdl,
-    type_to_wdl,
-    unbound_declaration_to_wdl,
+    bound_declaration_to_wdl, expression_to_wdl, input_declaration_to_wdl, string_literal_to_wdl,
+    type_to_wdl, unbound_declaration_to_wdl,
 };

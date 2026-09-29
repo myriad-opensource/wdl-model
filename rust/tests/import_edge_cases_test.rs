@@ -22,8 +22,8 @@ fn fixture_root(dir: &str) -> PathBuf {
 #[case("member_alias_conflicts_local")]
 #[case("member_alias_duplicate")]
 fn rejects_import_edge_case(#[case] dir: &str) {
-    let doc = load_from_path(&fixture_root(dir))
-        .unwrap_or_else(|e| panic!("load {dir}/root.wdl: {e}"));
+    let doc =
+        load_from_path(&fixture_root(dir)).unwrap_or_else(|e| panic!("load {dir}/root.wdl: {e}"));
     let mut base = WdlValidator::new();
     assert!(
         base.validate(&doc).is_err(),
@@ -34,8 +34,8 @@ fn rejects_import_edge_case(#[case] dir: &str) {
 
 #[test]
 fn accepts_mixed_forms_import() {
-    let doc = load_from_path(&fixture_root("mixed_forms_ok"))
-        .expect("load mixed_forms_ok/root.wdl");
+    let doc =
+        load_from_path(&fixture_root("mixed_forms_ok")).expect("load mixed_forms_ok/root.wdl");
     let mut base = WdlValidator::new();
     assert!(
         base.validate(&doc).is_ok(),

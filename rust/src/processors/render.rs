@@ -5,10 +5,10 @@
 //! tests) can call them without inheriting from a base class.
 
 use crate::expressions::{
-    WdlArrayLiteral, WdlBinaryOperation, WdlExpression, WdlFunctionCallOperation,
+    StringDelimiter, WdlArrayLiteral, WdlBinaryOperation, WdlExpression, WdlFunctionCallOperation,
     WdlIndexAccessOperation, WdlMapLiteral, WdlMemberAccessOperation, WdlObjectLiteral,
     WdlPairLiteral, WdlStringComponent, WdlStringLiteral, WdlStringPlaceholderOption,
-    WdlStructLiteral, WdlTernaryOperation, WdlUnaryOperation, StringDelimiter,
+    WdlStructLiteral, WdlTernaryOperation, WdlUnaryOperation,
 };
 use crate::statements::{WdlBoundDeclaration, WdlDeclaration};
 use crate::types::{TypeComponentType, WdlArrayType, WdlType};
@@ -88,7 +88,11 @@ fn string_component_to_wdl(
         WdlStringComponent::Text(t) => out.push_str(t),
         WdlStringComponent::Escape(e) => out.push_str(e),
         WdlStringComponent::Special(s) => out.push_str(s),
-        WdlStringComponent::Placeholder { symbol, option, expression } => {
+        WdlStringComponent::Placeholder {
+            symbol,
+            option,
+            expression,
+        } => {
             out.push_str(symbol.to_wdl_str());
             out.push('{');
             if let Some(opt) = option {
@@ -106,14 +110,20 @@ fn placeholder_option_to_wdl(
     out: &mut String,
 ) {
     match opt {
-        WdlStringPlaceholderOption::TrueFalse { true_value, false_value } => {
+        WdlStringPlaceholderOption::TrueFalse {
+            true_value,
+            false_value,
+        } => {
             out.push_str("true=");
             out.push_str(&string_literal_to_wdl(true_value, true));
             out.push_str(" false=");
             out.push_str(&string_literal_to_wdl(false_value, true));
             out.push(' ');
         }
-        WdlStringPlaceholderOption::FalseTrue { false_value, true_value } => {
+        WdlStringPlaceholderOption::FalseTrue {
+            false_value,
+            true_value,
+        } => {
             out.push_str("false=");
             out.push_str(&string_literal_to_wdl(false_value, true));
             out.push_str(" true=");
@@ -148,11 +158,7 @@ fn map_literal_to_wdl(lit: &WdlMapLiteral) -> String {
         .iter()
         .map(|e| {
             let key = expression_to_wdl(&e.key);
-            let val = e
-                .value
-                .as_ref()
-                .map(expression_to_wdl)
-                .unwrap_or_default();
+            let val = e.value.as_ref().map(expression_to_wdl).unwrap_or_default();
             format!("{}: {}", key, val)
         })
         .collect();
@@ -164,11 +170,7 @@ fn object_literal_to_wdl(lit: &WdlObjectLiteral) -> String {
         .entries
         .iter()
         .map(|e| {
-            let val = e
-                .value
-                .as_ref()
-                .map(expression_to_wdl)
-                .unwrap_or_default();
+            let val = e.value.as_ref().map(expression_to_wdl).unwrap_or_default();
             format!("{}: {}", e.key, val)
         })
         .collect();
@@ -188,11 +190,7 @@ fn struct_literal_to_wdl(lit: &WdlStructLiteral) -> String {
         .entries
         .iter()
         .map(|e| {
-            let val = e
-                .value
-                .as_ref()
-                .map(expression_to_wdl)
-                .unwrap_or_default();
+            let val = e.value.as_ref().map(expression_to_wdl).unwrap_or_default();
             format!("{}: {}", e.key, val)
         })
         .collect();
@@ -213,7 +211,11 @@ fn binary_op_to_wdl(op: &WdlBinaryOperation) -> String {
 }
 
 fn unary_op_to_wdl(op: &WdlUnaryOperation) -> String {
-    format!("{}{}", op.operator.to_wdl_str(), expression_to_wdl(&op.operand))
+    format!(
+        "{}{}",
+        op.operator.to_wdl_str(),
+        expression_to_wdl(&op.operand)
+    )
 }
 
 fn ternary_op_to_wdl(op: &WdlTernaryOperation) -> String {
@@ -276,7 +278,12 @@ pub fn type_to_wdl(ty: &WdlType) -> String {
 }
 
 fn array_type_to_wdl(ty: &WdlType) -> String {
-    if let WdlType::Array(WdlArrayType { member_type, non_empty, .. }) = ty {
+    if let WdlType::Array(WdlArrayType {
+        member_type,
+        non_empty,
+        ..
+    }) = ty
+    {
         let inner = type_to_wdl(member_type);
         if *non_empty {
             format!("Array[{}]+", inner)
@@ -290,7 +297,11 @@ fn array_type_to_wdl(ty: &WdlType) -> String {
 
 fn map_type_to_wdl(ty: &WdlType) -> String {
     if let WdlType::Map(m) = ty {
-        format!("Map[{}, {}]", type_to_wdl(&m.key_type), type_to_wdl(&m.value_type))
+        format!(
+            "Map[{}, {}]",
+            type_to_wdl(&m.key_type),
+            type_to_wdl(&m.value_type)
+        )
     } else {
         unreachable!()
     }
@@ -298,7 +309,11 @@ fn map_type_to_wdl(ty: &WdlType) -> String {
 
 fn pair_type_to_wdl(ty: &WdlType) -> String {
     if let WdlType::Pair(p) = ty {
-        format!("Pair[{},{}]", type_to_wdl(&p.left_type), type_to_wdl(&p.right_type))
+        format!(
+            "Pair[{},{}]",
+            type_to_wdl(&p.left_type),
+            type_to_wdl(&p.right_type)
+        )
     } else {
         unreachable!()
     }
@@ -310,7 +325,11 @@ fn pair_type_to_wdl(ty: &WdlType) -> String {
 
 /// Render a bound declaration (`Type name = expr`) into WDL source text.
 pub fn bound_declaration_to_wdl(decl: &WdlBoundDeclaration) -> String {
-    let env_prefix = if decl.environment_variable { "env " } else { "" };
+    let env_prefix = if decl.environment_variable {
+        "env "
+    } else {
+        ""
+    };
     format!(
         "{}{} {} = {}",
         env_prefix,
@@ -322,8 +341,17 @@ pub fn bound_declaration_to_wdl(decl: &WdlBoundDeclaration) -> String {
 
 /// Render an unbound declaration (`Type name`) into WDL source text.
 pub fn unbound_declaration_to_wdl(decl: &WdlDeclaration) -> String {
-    let env_prefix = if decl.environment_variable { "env " } else { "" };
-    format!("{}{} {}", env_prefix, type_to_wdl(&decl.wdl_type), decl.name)
+    let env_prefix = if decl.environment_variable {
+        "env "
+    } else {
+        ""
+    };
+    format!(
+        "{}{} {}",
+        env_prefix,
+        type_to_wdl(&decl.wdl_type),
+        decl.name
+    )
 }
 
 /// Render an `InputDeclaration` (which may be bound or unbound) into WDL source text.

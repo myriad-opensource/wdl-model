@@ -21,8 +21,7 @@ fn fixture(name: &str) -> PathBuf {
 #[case("order_comparison_type_fail.wdl")]
 #[case("ternary_condition_type_fail.wdl")]
 fn base_passes_static_rejects_operator_type_mismatch(#[case] name: &str) {
-    let doc = load_from_path(&fixture(name))
-        .unwrap_or_else(|e| panic!("load {name}: {e}"));
+    let doc = load_from_path(&fixture(name)).unwrap_or_else(|e| panic!("load {name}: {e}"));
 
     let mut base = WdlValidator::new();
     assert!(
@@ -50,8 +49,7 @@ fn accepts_valid_operator_expressions() {
 
 #[test]
 fn accepts_operator_precedence_and_compound_equality() {
-    let prec_doc =
-        load_from_path(&fixture("operator_precedence_ok.wdl")).expect("load precedence");
+    let prec_doc = load_from_path(&fixture("operator_precedence_ok.wdl")).expect("load precedence");
     let eq_doc =
         load_from_path(&fixture("compound_equality_ok.wdl")).expect("load compound_equality");
 

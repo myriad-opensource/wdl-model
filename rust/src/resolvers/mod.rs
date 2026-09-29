@@ -179,10 +179,12 @@ pub fn resolve_import_uri(
             match current.scheme() {
                 "file" => {
                     let current_path =
-                        current.to_file_path().map_err(|_| WdlImportError::InvalidUri {
-                            message: "cannot convert file URL to local path".to_owned(),
-                            location: import_location.to_owned(),
-                        })?;
+                        current
+                            .to_file_path()
+                            .map_err(|_| WdlImportError::InvalidUri {
+                                message: "cannot convert file URL to local path".to_owned(),
+                                location: import_location.to_owned(),
+                            })?;
                     let resolved = if bare_path.is_absolute() {
                         bare_path.to_path_buf()
                     } else {
@@ -213,19 +215,22 @@ pub fn resolve_import_uri(
                                 base.set_path("/");
                             }
                         }
-                        base.join(import_location).map_err(|e| WdlImportError::InvalidUri {
-                            message: e.to_string(),
-                            location: import_location.to_owned(),
-                        })
+                        base.join(import_location)
+                            .map_err(|e| WdlImportError::InvalidUri {
+                                message: e.to_string(),
+                                location: import_location.to_owned(),
+                            })
                     }
                 }
 
                 _ => {
                     // Unknown scheme — attempt URL join as a fallback.
-                    current.join(import_location).map_err(|e| WdlImportError::InvalidUri {
-                        message: e.to_string(),
-                        location: import_location.to_owned(),
-                    })
+                    current
+                        .join(import_location)
+                        .map_err(|e| WdlImportError::InvalidUri {
+                            message: e.to_string(),
+                            location: import_location.to_owned(),
+                        })
                 }
             }
         }
@@ -251,13 +256,12 @@ impl ImportResolver for FilesystemResolver {
     ) -> Result<String, WdlImportError> {
         match import_url.scheme() {
             "file" => {
-                let path =
-                    import_url
-                        .to_file_path()
-                        .map_err(|_| WdlImportError::InvalidUri {
-                            message: "cannot convert file URL to local path".to_owned(),
-                            location: original_import_location.to_owned(),
-                        })?;
+                let path = import_url
+                    .to_file_path()
+                    .map_err(|_| WdlImportError::InvalidUri {
+                        message: "cannot convert file URL to local path".to_owned(),
+                        location: original_import_location.to_owned(),
+                    })?;
                 read_file_path(&path, original_import_location)
             }
             "http" | "https" => Err(WdlImportError::UnsupportedProtocol {
@@ -326,14 +330,14 @@ impl ReqwestFetcher {
 impl HttpFetcher for ReqwestFetcher {
     fn fetch(&self, url: &Url) -> Result<String, WdlImportError> {
         let url_str = url.as_str().to_owned();
-        let resp = self
-            .client
-            .get(url.as_str())
-            .send()
-            .map_err(|e| WdlImportError::HttpRequest {
-                location: url_str.clone(),
-                source: e,
-            })?;
+        let resp =
+            self.client
+                .get(url.as_str())
+                .send()
+                .map_err(|e| WdlImportError::HttpRequest {
+                    location: url_str.clone(),
+                    source: e,
+                })?;
         let status = resp.status().as_u16();
         if !resp.status().is_success() {
             return Err(WdlImportError::HttpStatus {
@@ -397,13 +401,12 @@ impl ImportResolver for HttpResolver {
         match import_url.scheme() {
             "http" | "https" => self.fetcher.fetch(import_url),
             "file" => {
-                let path =
-                    import_url
-                        .to_file_path()
-                        .map_err(|_| WdlImportError::InvalidUri {
-                            message: "cannot convert file URL to local path".to_owned(),
-                            location: original_import_location.to_owned(),
-                        })?;
+                let path = import_url
+                    .to_file_path()
+                    .map_err(|_| WdlImportError::InvalidUri {
+                        message: "cannot convert file URL to local path".to_owned(),
+                        location: original_import_location.to_owned(),
+                    })?;
                 read_file_path(&path, original_import_location)
             }
             other => Err(WdlImportError::UnsupportedProtocol {

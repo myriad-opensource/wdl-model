@@ -26,8 +26,7 @@ fn fixture(name: &str) -> PathBuf {
 #[case("basename_bad_first.wdl")]
 #[case("size_bad_second.wdl")]
 fn base_passes_static_rejects_invalid_signature(#[case] name: &str) {
-    let doc = load_from_path(&fixture(name))
-        .unwrap_or_else(|e| panic!("load {name}: {e}"));
+    let doc = load_from_path(&fixture(name)).unwrap_or_else(|e| panic!("load {name}: {e}"));
 
     let mut base = WdlValidator::new();
     assert!(

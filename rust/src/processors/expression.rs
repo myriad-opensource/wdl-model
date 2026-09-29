@@ -148,7 +148,11 @@ pub trait WdlExpressionProcessor {
             WdlStringComponent::Text(t) => self.on_string_text(context, t),
             WdlStringComponent::Escape(e) => self.on_string_escape(context, e),
             WdlStringComponent::Special(s) => self.on_string_token(context, s),
-            WdlStringComponent::Placeholder { symbol: _, option, expression } => {
+            WdlStringComponent::Placeholder {
+                symbol: _,
+                option,
+                expression,
+            } => {
                 self.process_string_placeholder(context, option.as_deref(), expression);
             }
         }
@@ -276,12 +280,17 @@ pub trait WdlExpressionProcessor {
     ) {
         if let Some(opt) = option {
             match opt {
-                WdlStringPlaceholderOption::Sep(val)
-                | WdlStringPlaceholderOption::Default(val) => {
+                WdlStringPlaceholderOption::Sep(val) | WdlStringPlaceholderOption::Default(val) => {
                     self.walk_expression(&WdlExpression::StrLit(val.clone()));
                 }
-                WdlStringPlaceholderOption::TrueFalse { true_value, false_value }
-                | WdlStringPlaceholderOption::FalseTrue { true_value, false_value } => {
+                WdlStringPlaceholderOption::TrueFalse {
+                    true_value,
+                    false_value,
+                }
+                | WdlStringPlaceholderOption::FalseTrue {
+                    true_value,
+                    false_value,
+                } => {
                     self.walk_expression(&WdlExpression::StrLit(true_value.clone()));
                     self.walk_expression(&WdlExpression::StrLit(false_value.clone()));
                 }

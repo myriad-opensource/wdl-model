@@ -23,8 +23,7 @@ fn fixture(name: &str) -> PathBuf {
 #[case("object_type_deprecated.wdl")]
 #[case("placeholder_options_deprecated.wdl")]
 fn warns_on_deprecated_feature(#[case] name: &str) {
-    let doc = load_from_path(&fixture(name))
-        .unwrap_or_else(|e| panic!("load {name}: {e}"));
+    let doc = load_from_path(&fixture(name)).unwrap_or_else(|e| panic!("load {name}: {e}"));
 
     let mut lint = WdlLintingValidator::new(); // throw_on_warnings = true
     let result = lint.validate(&doc);
@@ -49,8 +48,8 @@ fn warns_on_deprecated_feature(#[case] name: &str) {
 #[test]
 fn warns_on_file_scheme_import_deprecated() {
     let path = fixture("file_scheme_import_deprecated.wdl");
-    let src = std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let src =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     let doc = load_from_str(&src).unwrap_or_else(|e| panic!("parse: {e}"));
 
     let mut lint = WdlLintingValidator::new();
@@ -75,8 +74,7 @@ fn warns_on_file_scheme_import_deprecated() {
 
 #[test]
 fn no_deprecation_warning_on_clean_fixture() {
-    let doc = load_from_path(&fixture("no_deprecations.wdl"))
-        .expect("load no_deprecations.wdl");
+    let doc = load_from_path(&fixture("no_deprecations.wdl")).expect("load no_deprecations.wdl");
 
     let mut lint = WdlLintingValidator::new();
     lint.set_throw_on_warnings(false);

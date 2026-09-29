@@ -21,8 +21,7 @@ fn fixture(name: &str) -> PathBuf {
 #[case("v12_contains_ok.wdl")]
 #[case("v13_value_ok.wdl")]
 fn accepts_version_compatible_function(#[case] name: &str) {
-    let doc = load_from_path(&fixture(name))
-        .unwrap_or_else(|e| panic!("load {name}: {e}"));
+    let doc = load_from_path(&fixture(name)).unwrap_or_else(|e| panic!("load {name}: {e}"));
     let mut base = WdlValidator::new();
     assert!(
         base.validate(&doc).is_ok(),
@@ -36,8 +35,7 @@ fn accepts_version_compatible_function(#[case] name: &str) {
 #[case("v11_join_paths_fail.wdl")]
 #[case("v12_value_fail.wdl")]
 fn rejects_version_incompatible_function(#[case] name: &str) {
-    let doc = load_from_path(&fixture(name))
-        .unwrap_or_else(|e| panic!("load {name}: {e}"));
+    let doc = load_from_path(&fixture(name)).unwrap_or_else(|e| panic!("load {name}: {e}"));
     let mut base = WdlValidator::new();
     let result = base.validate(&doc);
     assert!(

@@ -56,9 +56,7 @@ pub trait WdlProcessor {
                 WdlDocumentElement::Import(WdlImport::Standard(i)) => {
                     self.process_import_standard(doc, i)
                 }
-                WdlDocumentElement::Import(WdlImport::Star(i)) => {
-                    self.process_import_star(doc, i)
-                }
+                WdlDocumentElement::Import(WdlImport::Star(i)) => self.process_import_star(doc, i),
                 WdlDocumentElement::Import(WdlImport::Members(i)) => {
                     self.process_import_members(doc, i)
                 }
@@ -143,9 +141,7 @@ pub trait WdlProcessor {
                 WdlTaskElement::Output(s) => self.process_task_output(node, s),
                 WdlTaskElement::Command(s) => self.process_task_command(node, s),
                 WdlTaskElement::Meta(s) => self.process_task_metadata(node, s),
-                WdlTaskElement::ParameterMeta(s) => {
-                    self.process_task_parameter_metadata(node, s)
-                }
+                WdlTaskElement::ParameterMeta(s) => self.process_task_parameter_metadata(node, s),
                 WdlTaskElement::Requirements(s) => self.process_task_requirements(node, s),
                 WdlTaskElement::Runtime(s) => self.process_task_runtime(node, s),
                 WdlTaskElement::Hints(s) => self.process_task_hints(node, s),
@@ -166,12 +162,7 @@ pub trait WdlProcessor {
     fn process_task_command(&mut self, _ctx: &WdlTask, _node: &WdlCommand) {}
 
     /// Called for the `parameter_meta { … }` section of a task.
-    fn process_task_parameter_metadata(
-        &mut self,
-        _ctx: &WdlTask,
-        _node: &WdlParameterMetadata,
-    ) {
-    }
+    fn process_task_parameter_metadata(&mut self, _ctx: &WdlTask, _node: &WdlParameterMetadata) {}
 
     /// Called for the `meta { … }` section of a task.
     fn process_task_metadata(&mut self, _ctx: &WdlTask, _node: &WdlMetadata) {}
@@ -215,9 +206,7 @@ pub trait WdlProcessor {
                     self.process_workflow_parameter_metadata(node, s)
                 }
                 WdlWorkflowElement::Call(s) => self.process_workflow_call(node, s),
-                WdlWorkflowElement::Conditional(s) => {
-                    self.process_workflow_conditional(node, s)
-                }
+                WdlWorkflowElement::Conditional(s) => self.process_workflow_conditional(node, s),
                 WdlWorkflowElement::Scatter(s) => self.process_workflow_scatter(node, s),
                 WdlWorkflowElement::Hints(s) => self.process_workflow_hints(node, s),
             }
@@ -225,8 +214,7 @@ pub trait WdlProcessor {
     }
 
     /// Called for a bound declaration at workflow body scope.
-    fn process_workflow_declaration(&mut self, _ctx: &WdlWorkflow, _node: &WdlBoundDeclaration) {
-    }
+    fn process_workflow_declaration(&mut self, _ctx: &WdlWorkflow, _node: &WdlBoundDeclaration) {}
 
     /// Called for the `input { … }` section of a workflow.
     fn process_workflow_input(&mut self, _ctx: &WdlWorkflow, _node: &WdlInput) {}

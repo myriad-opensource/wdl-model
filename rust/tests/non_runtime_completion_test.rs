@@ -91,7 +91,10 @@ fn accepts_valid_member_and_index_access() {
 
 #[test]
 fn validates_placeholder_interpolation_and_section_syntax() {
-    for rel in ["placeholder_interpolation_ok.wdl", "requirements_hints_syntax_ok.wdl"] {
+    for rel in [
+        "placeholder_interpolation_ok.wdl",
+        "requirements_hints_syntax_ok.wdl",
+    ] {
         let doc = load_from_path(&fixture(rel)).unwrap_or_else(|e| panic!("parse {rel}: {e}"));
         let mut stat = WdlStaticAnalysisValidator::new();
         assert!(

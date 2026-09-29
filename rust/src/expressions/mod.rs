@@ -622,7 +622,10 @@ impl WdlFunction {
         match self {
             Floor | Ceil | Round => vec![sig(T::Int, &[T::Float])],
             Min | Max => vec![sig(T::Number, &[T::Number, T::Number])],
-            Sub => vec![sig(T::String, &[T::String, T::String, T::String, T::String])],
+            Sub => vec![sig(
+                T::String,
+                &[T::String, T::String, T::String, T::String],
+            )],
             Stdout | Stderr => vec![sig(T::File, &[])],
             ReadLines => vec![sig(T::ArrayString, &[T::File])],
             ReadTsv => vec![sig(T::ArrayArrayString, &[T::File])],

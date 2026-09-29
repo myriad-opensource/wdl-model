@@ -112,7 +112,11 @@ fn test_function_version_invalid() {
     // Base validator must catch the version error
     let mut base = WdlValidator::new();
     let result = base.validate(&doc);
-    assert!(result.is_err(), "base should fail; errors: {:?}", base.errors());
+    assert!(
+        result.is_err(),
+        "base should fail; errors: {:?}",
+        base.errors()
+    );
 }
 
 // ─── static_function_signature_bad ───────────────────────────────────────────
