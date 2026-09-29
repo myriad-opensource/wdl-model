@@ -1,0 +1,13 @@
+# Pins the toolchain used to build and lint this crate.
+#
+# This lives here rather than in Cargo.toml (where a `[toolchain]` table was
+# previously ignored with `warning: unused manifest key: toolchain`) because
+# rust-toolchain.toml is the only file rustup honours.
+#
+# The pin matters for `make lint`: clippy's lint set varies by release, so an
+# unpinned `-D warnings` gate is non-deterministic across contributors. For
+# example, `clippy::nonminimal_bool` fires on 1.95.0 but not on 1.98.0.
+#
+# Bump deliberately, and re-run `make lint` when you do.
+[toolchain]
+channel = "1.95.0"
