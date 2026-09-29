@@ -326,12 +326,19 @@ fn parse_document(source: &str) -> Result<WdlDocument, WdlError> {
 
 enum StackItem {
     // Imports
+    // TODO(B3): the loader never constructs these three — the corresponding
+    // import-building paths are unreachable. Kept for B3, which wires them up.
+    #[allow(dead_code)]
     ImportStandard(WdlImportStandard),
+    #[allow(dead_code)]
     ImportStar(WdlImportStar),
+    #[allow(dead_code)]
     ImportMembers(WdlImportMembers),
     ImportMember(WdlImportMember),
     // Definitions
     Struct(WdlStruct),
+    // TODO(B3): unreachable alongside the import variants above.
+    #[allow(dead_code)]
     StructMember(WdlStructMember),
     Enum(WdlEnum),
     EnumChoice(WdlEnumChoice),
@@ -866,13 +873,8 @@ impl WdlV1Builder {
 
     fn drain_while_expr(&mut self) -> Vec<WdlExpression> {
         let mut out = Vec::new();
-        loop {
-            match self.stack.last() {
-                Some(StackItem::Expr(_)) | Some(StackItem::StringLiteral(_)) => {
-                    out.push(self.pop_expr());
-                }
-                _ => break,
-            }
+        while let Some(StackItem::Expr(_)) | Some(StackItem::StringLiteral(_)) = self.stack.last() {
+            out.push(self.pop_expr());
         }
         out.reverse();
         out
@@ -932,6 +934,9 @@ impl WdlV1Builder {
             .expect("find_struct_idx: no Struct on stack")
     }
 
+    /// TODO(B3): unused — the enum-building path that would need this is not
+    /// reachable yet. Mirrors `find_struct_idx` above.
+    #[allow(dead_code)]
     fn find_enum_idx(&self) -> usize {
         self.stack
             .iter()
@@ -1114,7 +1119,7 @@ impl<'input> WdlV1ParserVisitor<'input> for WdlV1Builder {
     fn visit_versionStatement(&mut self, ctx: &VersionStatementContext<'input>) {
         if let Some(tok) = ctx.FLOAT() {
             let text = tok.get_text();
-            if let Some(v) = WdlVersion::from_str(&text) {
+            if let Some(v) = WdlVersion::from_version_string(&text) {
                 self.document.wdl_version = Some(v);
             }
         }

@@ -7,10 +7,9 @@
 use std::path::PathBuf;
 
 use wdl_model::expressions::{
-    WdlArrayLiteral, WdlBinaryOperation, WdlExpression,
-    WdlMapEntry, WdlMapLiteral, WdlStringComponent,
-    WdlStringLiteral, WdlStringPlaceholderOption, WdlUnaryOperation, BinaryOperator, StringDelimiter,
-    UnaryOperator,
+    BinaryOperator, StringDelimiter, UnaryOperator, WdlArrayLiteral, WdlBinaryOperation,
+    WdlExpression, WdlMapEntry, WdlMapLiteral, WdlStringComponent, WdlStringLiteral,
+    WdlStringPlaceholderOption, WdlUnaryOperation,
 };
 use wdl_model::processors::appending::WdlAppendingProcessor;
 use wdl_model::processors::base::WdlProcessor;
@@ -75,8 +74,14 @@ fn renders_metadata_content() {
     ap.process_document(&doc);
     let out = ap.into_string();
 
-    assert!(out.contains("meta {"), "expected 'meta {{' in output:\n{out}");
-    assert!(out.contains("author:"), "expected 'author:' in output:\n{out}");
+    assert!(
+        out.contains("meta {"),
+        "expected 'meta {{' in output:\n{out}"
+    );
+    assert!(
+        out.contains("author:"),
+        "expected 'author:' in output:\n{out}"
+    );
     assert!(
         out.contains("parameter_meta {"),
         "expected 'parameter_meta {{' in output:\n{out}"
@@ -180,7 +185,8 @@ fn walks_expressions_depth_first() {
     };
     let str_lit = {
         let mut s = WdlStringLiteral::new(StringDelimiter::DoubleQuote);
-        s.components.push(WdlStringComponent::Text("pre".to_string()));
+        s.components
+            .push(WdlStringComponent::Text("pre".to_string()));
         s.components.push(WdlStringComponent::Placeholder {
             symbol: wdl_model::expressions::PlaceholderSymbol::Dollar,
             option: Some(Box::new(WdlStringPlaceholderOption::Default(default_val))),
@@ -244,7 +250,7 @@ fn expression_to_wdl_primitives() {
     assert_eq!(expression_to_wdl(&WdlExpression::BoolLit(true)), "true");
     assert_eq!(expression_to_wdl(&WdlExpression::BoolLit(false)), "false");
     assert_eq!(expression_to_wdl(&WdlExpression::IntLit(42)), "42");
-    assert_eq!(expression_to_wdl(&WdlExpression::FloatLit(3.14)), "3.14");
+    assert_eq!(expression_to_wdl(&WdlExpression::FloatLit(2.5)), "2.5");
     assert_eq!(expression_to_wdl(&WdlExpression::NullLit), "None");
     assert_eq!(
         expression_to_wdl(&WdlExpression::Variable("x".to_string())),
@@ -332,8 +338,10 @@ fn widens_int_and_float_enum_choices_to_float() {
     let mut en = WdlEnum::new("Numbers");
     en.elements
         .push(WdlEnumChoice::with_value("ONE", WdlExpression::IntLit(1)));
-    en.elements
-        .push(WdlEnumChoice::with_value("PI", WdlExpression::FloatLit(3.14)));
+    en.elements.push(WdlEnumChoice::with_value(
+        "PI",
+        WdlExpression::FloatLit(std::f64::consts::PI),
+    ));
 
     let inferred = infer_enum_value_type(&en).expect("expected an inferred type");
     match inferred {
@@ -369,14 +377,18 @@ fn supports_local_struct_and_enum_introspection_helpers() {
     use wdl_model::types::{WdlPrimitiveKind, WdlPrimitiveType, WdlType};
 
     let mut structure = WdlStruct::new("Person");
-    structure.elements.push(WdlStructElement::Member(WdlStructMember::new(
-        WdlType::Primitive(WdlPrimitiveType::new(WdlPrimitiveKind::String)),
-        "name",
-    )));
-    structure.elements.push(WdlStructElement::Member(WdlStructMember::new(
-        WdlType::Primitive(WdlPrimitiveType::new(WdlPrimitiveKind::Int)),
-        "age",
-    )));
+    structure
+        .elements
+        .push(WdlStructElement::Member(WdlStructMember::new(
+            WdlType::Primitive(WdlPrimitiveType::new(WdlPrimitiveKind::String)),
+            "name",
+        )));
+    structure
+        .elements
+        .push(WdlStructElement::Member(WdlStructMember::new(
+            WdlType::Primitive(WdlPrimitiveType::new(WdlPrimitiveKind::Int)),
+            "age",
+        )));
 
     let mut en = WdlEnum::new("Status");
     en.elements.push(WdlEnumChoice::new("NEW"));
@@ -384,7 +396,9 @@ fn supports_local_struct_and_enum_introspection_helpers() {
 
     assert!(structure.has_member("name"));
     assert!(!structure.has_member("missing"));
-    let age_type = structure.member_type("age").expect("age member should exist");
+    let age_type = structure
+        .member_type("age")
+        .expect("age member should exist");
     match age_type {
         WdlType::Primitive(p) => assert_eq!(p.primitive_kind, WdlPrimitiveKind::Int),
         other => panic!("expected Primitive(Int), got {other:?}"),

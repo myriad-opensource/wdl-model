@@ -34,7 +34,7 @@ impl WdlVersion {
 
     /// Converts a source-level version string such as `"1.3"` into the matching variant.
     /// Returns `None` if the string is not a known version.
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn from_version_string(s: &str) -> Option<Self> {
         match s {
             "1.0" => Some(WdlVersion::V1_0),
             "1.1" => Some(WdlVersion::V1_1),

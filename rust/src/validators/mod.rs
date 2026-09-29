@@ -71,6 +71,11 @@ struct StructShape {
 }
 
 impl StructShape {
+    /// TODO(B1): unused — the equivalent comparison is currently inlined at
+    /// `index_local_struct` (search for `ordered_member_type_wdl`), which builds
+    /// a bare `IndexMap` rather than a `StructShape`. B1 should route that call
+    /// site through this method.
+    #[allow(dead_code)]
     fn is_compatible_with(&self, other: &StructShape) -> bool {
         self.ordered_member_type_wdl == other.ordered_member_type_wdl
     }
@@ -79,11 +84,17 @@ impl StructShape {
 /// Structural description of an enum.
 #[derive(Debug, Clone)]
 struct EnumShape {
+    /// TODO(B1): never read — cross-import enum compatibility is collected into
+    /// `enum_shapes` but never compared. Consumed by `is_compatible_with` below.
+    #[allow(dead_code)]
     value_type_wdl: String,
     choices: Vec<String>,
 }
 
 impl EnumShape {
+    /// TODO(B1): unused — cross-import enum compatibility is collected and then
+    /// discarded. B1 implements the check that calls this.
+    #[allow(dead_code)]
     fn is_compatible_with(&self, other: &EnumShape) -> bool {
         self.value_type_wdl == other.value_type_wdl && self.choices == other.choices
     }
@@ -356,6 +367,9 @@ impl ValidatorRunner {
         }
     }
 
+    /// TODO(B2): orphaned — nothing calls this, so no type widening happens
+    /// anywhere in the validator. B2 wires it into inference.
+    #[allow(dead_code)]
     fn merge_types(&self, a: Option<WdlType>, b: Option<WdlType>) -> Option<WdlType> {
         match (a, b) {
             (Some(t), None) | (None, Some(t)) => Some(t),
@@ -1362,7 +1376,9 @@ impl ValidatorRunner {
                 let r_num = rt.map(|t| self.is_numeric(t)).unwrap_or(true);
                 let l_str = lt.map(|t| self.is_string(t)).unwrap_or(false);
                 let r_str = rt.map(|t| self.is_string(t)).unwrap_or(false);
-                if !(l_num && r_num) && !(l_str || r_str) {
+                let numeric_pair = l_num && r_num;
+                let string_operand = l_str || r_str;
+                if !(numeric_pair || string_operand) {
                     self.add_error(
                         WdlErrorCode::TypeMismatch,
                         "Operator '+' requires numeric or string operands",
@@ -1594,11 +1610,7 @@ impl ValidatorRunner {
         if self.enum_shapes.contains_key(&en.name) {
             return; // already indexed
         }
-        let vt_wdl = en
-            .value_type
-            .as_ref()
-            .map(|t| type_to_wdl(t))
-            .unwrap_or_default();
+        let vt_wdl = en.value_type.as_ref().map(type_to_wdl).unwrap_or_default();
         let choices: Vec<String> = en
             .elements
             .iter()
@@ -1946,7 +1958,7 @@ impl ValidatorRunner {
                 // Root key (before first '.')
                 let root_key = input
                     .key
-                    .splitn(2, '.')
+                    .split('.')
                     .next()
                     .unwrap_or(&input.key)
                     .to_string();
@@ -1993,7 +2005,7 @@ impl ValidatorRunner {
             let provided: HashSet<String> = call
                 .inputs
                 .iter()
-                .map(|i| i.key.splitn(2, '.').next().unwrap_or(&i.key).to_string())
+                .map(|i| i.key.split('.').next().unwrap_or(&i.key).to_string())
                 .collect();
             for req in &c.required_inputs {
                 if !provided.contains(req) {
