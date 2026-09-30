@@ -405,6 +405,9 @@ impl ValidatorRunner {
         if expected == actual {
             return true;
         }
+        if !expected.is_optional() && actual.is_optional() {
+            return false;
+        }
         match (expected, actual) {
             // Int → Float promotion
             (WdlType::Primitive(e), WdlType::Primitive(a))
@@ -422,9 +425,10 @@ impl ValidatorRunner {
                 true
             }
 
-            // File / Directory → String coercion (WDL spec: path-like values
-            // are assignable to String declarations, e.g. a File returned by
-            // `write_map` used in a String-typed context).
+            // File / Directory → String coercion. NOT in the spec's coercion
+            // table, and no other implementation has it — but it is required by
+            // the normative spec example `placeholder_coercion.wdl`, which does
+            // `File x` / `String x_as_str = x`. See `.context/C1_plan.md` §5.1.
             (WdlType::Primitive(e), WdlType::Primitive(a))
                 if e.primitive_kind == PK::String
                     && (a.primitive_kind == PK::File || a.primitive_kind == PK::Directory) =>
