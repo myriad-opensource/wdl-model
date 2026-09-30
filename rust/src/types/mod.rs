@@ -8,6 +8,7 @@ pub enum TypeComponentType {
     Array,
     Pair,
     Map,
+    Unknown,
 }
 
 /// Primitive WDL type names.
@@ -138,6 +139,28 @@ pub enum WdlType {
     Map(Box<WdlMapType>),
     Pair(Box<WdlPairType>),
     TypeRef(WdlTypeRefType),
+    /// A type that could not be inferred.
+    ///
+    /// This is an *inference artifact* — the parser never produces it. It is the
+    /// counterpart of a `null` `WdlType` in the Java implementation, which uses
+    /// `null` both for "no type at all" and for "unknown component type".
+    ///
+    /// Java relies on this in `WdlExpressionValidator.inferType`: an empty array
+    /// literal `[]` infers `Array[<null member>]` (not `Array[String]`, and not
+    /// `null`), because the fold loop never runs and `new WdlArrayType(null, …)`
+    /// is constructed unconditionally (`WdlExpressionValidator.java:294-306`).
+    /// `isTypeAssignable` then short-circuits to `true` whenever either side is
+    /// `null` (`:697-700`), so `Array[Int] a = []` is accepted while
+    /// `Int a = []` is still rejected.
+    ///
+    /// # Invariant
+    ///
+    /// `Unknown` may only appear in **nested** position — as an array member, a
+    /// map key or value, or a pair side. Any path that would yield a bare
+    /// top-level `Unknown` must yield `None` instead, so that `Option<WdlType>`
+    /// means exactly what Java's nullable return does. See
+    /// `ValidatorRunner::demote_unknown`.
+    Unknown,
 }
 
 impl WdlType {
@@ -149,6 +172,7 @@ impl WdlType {
             WdlType::Map(_) => TypeComponentType::Map,
             WdlType::Pair(_) => TypeComponentType::Pair,
             WdlType::TypeRef(_) => TypeComponentType::TypeRef,
+            WdlType::Unknown => TypeComponentType::Unknown,
         }
     }
 
@@ -160,6 +184,8 @@ impl WdlType {
             WdlType::Map(t) => t.optional,
             WdlType::Pair(t) => t.optional,
             WdlType::TypeRef(t) => t.optional,
+            // Mirrors Java, where a `null` type carries no optionality either.
+            WdlType::Unknown => false,
         }
     }
 
@@ -171,6 +197,7 @@ impl WdlType {
             WdlType::Map(t) => t.optional = optional,
             WdlType::Pair(t) => t.optional = optional,
             WdlType::TypeRef(t) => t.optional = optional,
+            WdlType::Unknown => {}
         }
         self
     }

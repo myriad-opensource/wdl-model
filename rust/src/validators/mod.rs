@@ -302,6 +302,17 @@ impl ValidatorRunner {
     }
 
     fn infer_type(&self, expr: &WdlExpression) -> Option<WdlType> {
+        // Enforce the `WdlType::Unknown` invariant at a single choke point.
+        // `Unknown` is legal *nested* inside a container, but a bare top-level
+        // `Unknown` must present as `None`, which is what Java's nullable
+        // `inferType` return means. Routing every recursive call through here
+        // keeps the two representations in step no matter which arm produced
+        // the value — notably `IdxOp` projecting out of an `Array[Unknown]`, and
+        // `Variable` reading a scatter binding whose collection was `[]`.
+        Self::demote_unknown(self.infer_type_inner(expr))
+    }
+
+    fn infer_type_inner(&self, expr: &WdlExpression) -> Option<WdlType> {
         use WdlPrimitiveKind as PK;
         let prim = |k: PK| WdlType::Primitive(WdlPrimitiveType::new(k));
         match expr {
@@ -318,32 +329,47 @@ impl ValidatorRunner {
             }
             WdlExpression::FuncOp(op) => self.infer_function_type(op),
             WdlExpression::ArrayLit(arr) => {
-                let mt = arr
-                    .entries
-                    .first()
-                    .and_then(|e| self.infer_type(e))
-                    .unwrap_or_else(|| prim(PK::String));
-                Some(WdlType::Array(WdlArrayType::new(mt)))
+                // Mirrors `WdlExpressionValidator.inferType` (Java :294-307):
+                // fold every entry, *skipping* un-inferable ones, and stop as
+                // soon as two entries are irreconcilable. An empty literal, or
+                // one whose entries all fail to infer, yields `Array[Unknown]`
+                // rather than a guessed member type.
+                let mut member: Option<WdlType> = None;
+                for entry in &arr.entries {
+                    let item = self.infer_type(entry);
+                    if item.is_none() {
+                        continue;
+                    }
+                    member = self.merge_types(member, item);
+                    if member.is_none() {
+                        break;
+                    }
+                }
+                Some(WdlType::Array(WdlArrayType::new(
+                    member.unwrap_or(WdlType::Unknown),
+                )))
             }
             WdlExpression::MapLit(map) => {
-                let kt = map
-                    .entries
-                    .first()
-                    .and_then(|e| self.infer_type(&e.key))
-                    .unwrap_or_else(|| prim(PK::String));
-                let vt = map
-                    .entries
-                    .first()
-                    .and_then(|e| e.value.as_ref())
-                    .and_then(|v| self.infer_type(v))
-                    .unwrap_or_else(|| prim(PK::String));
-                Some(WdlType::Map(Box::new(WdlMapType::new(kt, vt))))
+                // Mirrors Java :318-326. Unlike the array arm there is no early
+                // bail: an irreconcilable pair of keys (or values) simply leaves
+                // that side unknown and the fold continues.
+                let mut kt: Option<WdlType> = None;
+                let mut vt: Option<WdlType> = None;
+                for entry in &map.entries {
+                    kt = self.merge_types(kt, self.infer_type(&entry.key));
+                    let value = entry.value.as_ref().and_then(|v| self.infer_type(v));
+                    vt = self.merge_types(vt, value);
+                }
+                Some(WdlType::Map(Box::new(WdlMapType::new(
+                    kt.unwrap_or(WdlType::Unknown),
+                    vt.unwrap_or(WdlType::Unknown),
+                ))))
             }
             WdlExpression::PairLit(p) => {
-                let l = self.infer_type(&p.left).unwrap_or_else(|| prim(PK::String));
-                let r = self
-                    .infer_type(&p.right)
-                    .unwrap_or_else(|| prim(PK::String));
+                // Mirrors Java :309-316: if either side is un-inferable the
+                // whole pair is un-inferable.
+                let l = self.infer_type(&p.left)?;
+                let r = self.infer_type(&p.right)?;
                 Some(WdlType::Pair(Box::new(WdlPairType::new(l, r))))
             }
             WdlExpression::StructLit(s) => {
@@ -369,9 +395,12 @@ impl ValidatorRunner {
                 UnaryOperator::Not => Some(prim(PK::Boolean)),
                 UnaryOperator::Negative => self.infer_type(&op.operand),
             },
-            WdlExpression::TernaryOp(op) => self
-                .infer_type(&op.true_value)
-                .or_else(|| self.infer_type(&op.false_value)),
+            // Mirrors Java :414-418, which merges the two branches rather than
+            // taking whichever happens to infer first.
+            WdlExpression::TernaryOp(op) => self.merge_types(
+                self.infer_type(&op.true_value),
+                self.infer_type(&op.false_value),
+            ),
             WdlExpression::MemberOp(op) => {
                 if let WdlExpression::Variable(name) = op.target.as_ref() {
                     if let Some(outputs) = self.call_output_types.get(name.as_str()) {
@@ -418,26 +447,61 @@ impl ValidatorRunner {
         }
     }
 
-    /// TODO(B2): orphaned — nothing calls this, so no type widening happens
-    /// anywhere in the validator. B2 wires it into inference.
-    #[allow(dead_code)]
-    fn merge_types(&self, a: Option<WdlType>, b: Option<WdlType>) -> Option<WdlType> {
-        match (a, b) {
-            (Some(t), None) | (None, Some(t)) => Some(t),
-            (Some(a), Some(b)) => {
-                if self.is_type_assignable(&a, &b) || self.is_type_assignable(&b, &a) {
-                    Some(a)
-                } else {
-                    None
-                }
-            }
-            (None, None) => None,
+    /// Collapses a bare `Unknown` to `None`.
+    ///
+    /// Java uses a single `null` for both "no type at all" and "unknown
+    /// component type". Rust splits those into `None` and [`WdlType::Unknown`]
+    /// respectively, so the top-level boundary between them has to be policed
+    /// explicitly; see [`Self::infer_type`].
+    ///
+    /// Without this, `scatter (x in [])` would bind `x` to a bare `Unknown` and
+    /// `[x, 1]` would infer `Array[Unknown]`, because the array fold skips
+    /// `None` but would happily merge a bare `Unknown`. Java infers `Array[Int]`.
+    fn demote_unknown(ty: Option<WdlType>) -> Option<WdlType> {
+        match ty {
+            Some(WdlType::Unknown) => None,
+            other => other,
         }
+    }
+
+    /// Merges two inferred types into the most general type that accepts both.
+    ///
+    /// Mirrors `WdlExpressionValidator.mergeTypes` (Java :673-695), including
+    /// its treatment of an un-inferable operand as "no information" rather than
+    /// as a failure. Returns `None` when the two are irreconcilable.
+    fn merge_types(&self, a: Option<WdlType>, b: Option<WdlType>) -> Option<WdlType> {
+        use WdlPrimitiveKind as PK;
+        let (a, b) = match (a, b) {
+            (current, None) => return current,
+            (None, next) => return next,
+            (Some(a), Some(b)) => (a, b),
+        };
+        if self.is_type_assignable(&a, &b) {
+            return Some(a);
+        }
+        if self.is_type_assignable(&b, &a) {
+            return Some(b);
+        }
+        // Int and Float are mutually unassignable in the `actual → expected`
+        // direction, but a literal containing both widens to Float.
+        let is_prim = |t: &WdlType, k: PK| matches!(t, WdlType::Primitive(p) if p.primitive_kind == k && !p.optional);
+        if (is_prim(&a, PK::Int) && is_prim(&b, PK::Float))
+            || (is_prim(&a, PK::Float) && is_prim(&b, PK::Int))
+        {
+            return Some(WdlType::Primitive(WdlPrimitiveType::new(PK::Float)));
+        }
+        None
     }
 
     /// Returns `true` if `actual` can be assigned to `expected`.
     fn is_type_assignable(&self, expected: &WdlType, actual: &WdlType) -> bool {
         use WdlPrimitiveKind as PK;
+        // An un-inferable type on either side is assumed compatible. This sits
+        // above the optionality guard to match Java :697-703, and is what makes
+        // `Array[Int] a = []` (member type `Unknown`) diagnostic-free.
+        if matches!(expected, WdlType::Unknown) || matches!(actual, WdlType::Unknown) {
+            return true;
+        }
         if expected == actual {
             return true;
         }
@@ -2073,6 +2137,9 @@ impl ValidatorRunner {
                 self.validate_known_type_reference(&rt, location);
             }
             WdlType::Primitive(_) => {}
+            // Only ever called on declared types, which come from the parser and
+            // so can never be `Unknown`.
+            WdlType::Unknown => {}
         }
     }
 

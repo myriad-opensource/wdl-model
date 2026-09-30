@@ -270,6 +270,11 @@ pub fn type_to_wdl(ty: &WdlType) -> String {
                 unreachable!()
             }
         }
+        // An un-inferable type. Only reachable from validator diagnostics, which
+        // already spell a missing type as "null" (see `validators::add_error`
+        // call sites for TypeMismatch); the parser never produces `Unknown`, so
+        // this cannot appear on a source round-trip.
+        TypeComponentType::Unknown => "null".to_string(),
     };
     if ty.is_optional() {
         out.push('?');

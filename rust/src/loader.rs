@@ -326,20 +326,9 @@ fn parse_document(source: &str) -> Result<WdlDocument, WdlError> {
 
 enum StackItem {
     // Imports
-    // TODO(B3): the loader never constructs these three — the corresponding
-    // import-building paths are unreachable. Kept for B3, which wires them up.
-    #[allow(dead_code)]
-    ImportStandard(WdlImportStandard),
-    #[allow(dead_code)]
-    ImportStar(WdlImportStar),
-    #[allow(dead_code)]
-    ImportMembers(WdlImportMembers),
     ImportMember(WdlImportMember),
     // Definitions
     Struct(WdlStruct),
-    // TODO(B3): unreachable alongside the import variants above.
-    #[allow(dead_code)]
-    StructMember(WdlStructMember),
     Enum(WdlEnum),
     EnumChoice(WdlEnumChoice),
     Task(WdlTask),
@@ -780,16 +769,6 @@ impl WdlV1Builder {
         out
     }
 
-    #[allow(dead_code)]
-    fn drain_while_declaration(&mut self) -> Vec<WdlDeclaration> {
-        let mut out = Vec::new();
-        while matches!(self.stack.last(), Some(StackItem::Declaration(_))) {
-            out.push(self.pop_declaration());
-        }
-        out.reverse();
-        out
-    }
-
     fn drain_while_bound_decl(&mut self) -> Vec<WdlBoundDeclaration> {
         let mut out = Vec::new();
         while matches!(self.stack.last(), Some(StackItem::BoundDeclaration(_))) {
@@ -934,16 +913,6 @@ impl WdlV1Builder {
             .expect("find_struct_idx: no Struct on stack")
     }
 
-    /// TODO(B3): unused — the enum-building path that would need this is not
-    /// reachable yet. Mirrors `find_struct_idx` above.
-    #[allow(dead_code)]
-    fn find_enum_idx(&self) -> usize {
-        self.stack
-            .iter()
-            .rposition(|item| matches!(item, StackItem::Enum(_)))
-            .expect("find_enum_idx: no Enum on stack")
-    }
-
     fn find_scatter_idx(&self) -> usize {
         self.stack
             .iter()
@@ -1045,12 +1014,8 @@ impl WdlV1Builder {
 fn stack_item_name(item: &Option<StackItem>) -> &'static str {
     match item {
         None => "None",
-        Some(StackItem::ImportStandard(_)) => "ImportStandard",
-        Some(StackItem::ImportStar(_)) => "ImportStar",
-        Some(StackItem::ImportMembers(_)) => "ImportMembers",
         Some(StackItem::ImportMember(_)) => "ImportMember",
         Some(StackItem::Struct(_)) => "Struct",
-        Some(StackItem::StructMember(_)) => "StructMember",
         Some(StackItem::Enum(_)) => "Enum",
         Some(StackItem::EnumChoice(_)) => "EnumChoice",
         Some(StackItem::Task(_)) => "Task",
