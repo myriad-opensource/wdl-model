@@ -24,7 +24,8 @@ use crate::processors::base::import_namespace;
 use crate::processors::render::type_to_wdl;
 use crate::sections::InputDeclaration;
 use crate::statements::{
-    WdlBoundDeclaration, WdlCall, WdlConditional, WdlImport, WdlScatter, WdlStatement,
+    WdlBoundDeclaration, WdlCall, WdlConditional, WdlImport, WdlImportMember, WdlScatter,
+    WdlStatement,
 };
 use crate::types::{
     WdlArrayType, WdlMapType, WdlPairType, WdlPrimitiveKind, WdlPrimitiveType, WdlType,
@@ -71,11 +72,9 @@ struct StructShape {
 }
 
 impl StructShape {
-    /// TODO(B1): unused — the equivalent comparison is currently inlined at
-    /// `index_local_struct` (search for `ordered_member_type_wdl`), which builds
-    /// a bare `IndexMap` rather than a `StructShape`. B1 should route that call
-    /// site through this method.
-    #[allow(dead_code)]
+    /// Structural equality, mirroring Java `StructShape.isCompatibleWith`
+    /// (`WdlValidator.java:1060`). Only the rendered member types participate;
+    /// `IndexMap` equality is order-independent, matching Java's `Map.equals`.
     fn is_compatible_with(&self, other: &StructShape) -> bool {
         self.ordered_member_type_wdl == other.ordered_member_type_wdl
     }
@@ -90,28 +89,65 @@ impl StructShape {
 /// - `choice_names` answers "is this string a legal choice name?" — required by
 ///   the `Enum` ← `String` coercion rule in WDL 1.3 `SPEC.md:1965`.
 /// - `choice_shapes` answers "are these two enums the same enum?" across imports.
+///
+/// `effective_value_type` folds in Java's third map, `enumValueTypes`
+/// (`WdlValidator.java:66`). Java writes all three maps on consecutive lines
+/// under the same key (`L617-619`, `L429-431`), so a field cannot desync where
+/// parallel maps could.
 #[derive(Debug, Clone)]
 struct EnumShape {
-    /// TODO(B1): never read — cross-import enum compatibility is collected into
-    /// `enum_shapes` but never compared. Consumed by `is_compatible_with` below.
-    #[allow(dead_code)]
+    /// Rendered *declared* value type, or `<implicit>` when the enum has no
+    /// `enum Foo[Type]` parameter. Compared by `is_compatible_with`.
     value_type_wdl: String,
     /// Bare choice names, e.g. `"Red"`. Drives the membership test in
     /// `is_assignable_from`. Unordered: only `contains` is ever called.
     choice_names: HashSet<String>,
     /// Uniform `NAME=value` renderings, e.g. `"Red=\"#FF0000\""`, with `<none>`
     /// for a valueless choice. Order is significant — compared as a sequence.
-    /// TODO(B1): written but not yet read; see `is_compatible_with`.
-    #[allow(dead_code)]
     choice_shapes: Vec<String>,
+    /// *Effective* value type: the declared type when present, otherwise the
+    /// type inferred from the choice values, otherwise `String`. Mirrors Java
+    /// `effectiveEnumValueType` (`WdlValidator.java:622-625`). Distinct from
+    /// `value_type_wdl`, which is the declared rendering only.
+    effective_value_type: WdlType,
 }
 
 impl EnumShape {
-    /// TODO(B1): unused — cross-import enum compatibility is collected and then
-    /// discarded. B1 implements the check that calls this.
-    #[allow(dead_code)]
+    /// Mirrors Java `EnumShape.isCompatibleWith` (`WdlValidator.java:1097`).
+    ///
+    /// Note this compares the *declared* value type rendering, not
+    /// `effective_value_type` — matching Java, and the reason the value-type
+    /// diagnostic in `index_imported_enum` is unreachable (see `.context/B1_plan.md` §5.4).
     fn is_compatible_with(&self, other: &EnumShape) -> bool {
         self.value_type_wdl == other.value_type_wdl && self.choice_shapes == other.choice_shapes
+    }
+}
+
+/// Resolves the local name an imported type enters the importing document under.
+///
+/// Mirrors Java `resolveImportedTypeLocalName` (`WdlValidator.java:454-482`):
+/// a `Standard` or `Members` import may rename the type via `alias X as Y`, a
+/// `Star` import never renames, and a `Members` import that does not list the
+/// type at all returns `None` so the type is skipped entirely.
+fn resolve_imported_type_local_name(imp: &WdlImport, imported_type_name: &str) -> Option<String> {
+    fn aliased(members: &[WdlImportMember], name: &str) -> Option<Option<String>> {
+        members.iter().find(|m| m.member == name).map(|m| {
+            m.alias
+                .as_deref()
+                .filter(|a| !a.trim().is_empty())
+                .map(str::to_string)
+        })
+    }
+
+    match imp {
+        WdlImport::Standard(std_imp) => Some(
+            aliased(&std_imp.members, imported_type_name)
+                .flatten()
+                .unwrap_or_else(|| imported_type_name.to_string()),
+        ),
+        WdlImport::Star(_) => Some(imported_type_name.to_string()),
+        WdlImport::Members(mem_imp) => aliased(&mem_imp.members, imported_type_name)
+            .map(|alias| alias.unwrap_or_else(|| imported_type_name.to_string())),
     }
 }
 
@@ -1597,50 +1633,103 @@ impl ValidatorRunner {
         }
     }
 
+    /// Rebuilds a `StructShape` from the indexed maps, mirroring Java
+    /// `structShapeFor` (`WdlValidator.java:484-491`).
+    fn struct_shape_for(&self, struct_name: &str) -> Option<StructShape> {
+        let member_types = self.struct_member_types.get(struct_name)?;
+        self.struct_members.get(struct_name)?;
+        let mut ordered_member_type_wdl = IndexMap::new();
+        let mut ordered_member_types = IndexMap::new();
+        for (name, ty) in member_types {
+            ordered_member_type_wdl.insert(name.clone(), type_to_wdl(ty));
+            ordered_member_types.insert(name.clone(), ty.clone());
+        }
+        Some(StructShape {
+            ordered_member_type_wdl,
+            ordered_member_types,
+        })
+    }
+
+    /// Commits a struct shape to the indexed maps.
+    fn store_struct_shape(&mut self, name: &str, shape: &StructShape) {
+        let mut members_set = HashSet::new();
+        let mut members_types = HashMap::new();
+        for (member, ty) in &shape.ordered_member_types {
+            members_set.insert(member.clone());
+            members_types.insert(member.clone(), ty.clone());
+        }
+        self.struct_members.insert(name.to_string(), members_set);
+        self.struct_member_types
+            .insert(name.to_string(), members_types);
+    }
+
+    /// Mirrors Java `indexLocalStruct` (`WdlValidator.java:492-510`): on an
+    /// incompatible clash with an already-indexed (imported) struct, emit and
+    /// bail; otherwise overwrite.
     fn index_local_struct(&mut self, s: &WdlStruct) {
+        if s.name.trim().is_empty() {
+            return;
+        }
         let shape = self.to_struct_shape(s);
-        if let Some(existing) = self.struct_members.get(&s.name) {
-            // already present — check compatibility
-            let existing_wdl: IndexMap<String, String> = existing
-                .iter()
-                .filter_map(|n| {
-                    self.struct_member_types
-                        .get(&s.name)
-                        .and_then(|m| m.get(n))
-                        .map(|t| (n.clone(), type_to_wdl(t)))
-                })
-                .collect();
-            if existing_wdl != shape.ordered_member_type_wdl {
+        if let Some(existing) = self.struct_shape_for(&s.name) {
+            if !existing.is_compatible_with(&shape) {
                 self.add_error(
-                    WdlErrorCode::GenericSemanticError,
+                    WdlErrorCode::TypeMismatch,
                     format!(
-                        "Struct '{}' is incompatible with imported definition",
+                        "Struct '{}' conflicts with imported struct definition; \
+                         alias imported structs to disambiguate",
                         s.name
                     ),
                 );
+                return;
             }
-            return;
         }
-        let mut members_set = HashSet::new();
-        let mut members_types = HashMap::new();
-        for (name, ty) in &shape.ordered_member_types {
-            members_set.insert(name.clone());
-            members_types.insert(name.clone(), ty.clone());
-        }
-        self.struct_members.insert(s.name.clone(), members_set);
-        self.struct_member_types
-            .insert(s.name.clone(), members_types);
+        self.store_struct_shape(&s.name.clone(), &shape);
     }
 
-    fn index_local_enum(&mut self, en: &WdlEnum) {
-        if self.enum_shapes.contains_key(&en.name) {
-            return; // already indexed
+    /// Mirrors Java `indexImportedStructs` (`WdlValidator.java:392-415`).
+    /// `local_name` is the alias under which the struct enters this document.
+    fn index_imported_struct(&mut self, s: &WdlStruct, local_name: &str) {
+        if s.name.trim().is_empty() || local_name.trim().is_empty() {
+            return;
         }
+        let incoming = self.to_struct_shape(s);
+        match self.struct_shape_for(local_name) {
+            None => self.store_struct_shape(local_name, &incoming),
+            Some(existing) => {
+                if !existing.is_compatible_with(&incoming) {
+                    self.add_error(
+                        WdlErrorCode::TypeMismatch,
+                        format!(
+                            "Imported struct '{}' has incompatible definitions across imports; \
+                             use aliases to disambiguate",
+                            local_name
+                        ),
+                    );
+                }
+            }
+        }
+    }
+
+    /// Effective enum value type: declared if present, else inferred from the
+    /// choice values, else `String`. Mirrors Java `effectiveEnumValueType`
+    /// (`WdlValidator.java:622-625`).
+    fn effective_enum_value_type(en: &WdlEnum) -> WdlType {
+        en.value_type
+            .clone()
+            .or_else(|| crate::processors::base::infer_enum_value_type(en))
+            .unwrap_or_else(|| WdlType::Primitive(WdlPrimitiveType::new(WdlPrimitiveKind::String)))
+    }
+
+    /// Builds the structural description of an enum. Mirrors Java
+    /// `EnumShape.from` (`WdlValidator.java:1079-1095`) plus the two companion
+    /// maps Java writes alongside it.
+    fn to_enum_shape(en: &WdlEnum) -> EnumShape {
         // Sentinels mirror Java `WdlValidator.EnumShape.from` (L1084-1093): an
         // absent value type renders `<implicit>` and a valueless choice renders
         // `<none>`, so the shape format is uniform and cannot collide with a
         // real rendering.
-        let vt_wdl = en
+        let value_type_wdl = en
             .value_type
             .as_ref()
             .map(type_to_wdl)
@@ -1666,14 +1755,97 @@ impl ValidatorRunner {
             .filter(|c| !c.name.trim().is_empty())
             .map(|c| c.name.clone())
             .collect();
-        self.enum_shapes.insert(
-            en.name.clone(),
-            EnumShape {
-                value_type_wdl: vt_wdl,
-                choice_names,
-                choice_shapes,
-            },
-        );
+        EnumShape {
+            value_type_wdl,
+            choice_names,
+            choice_shapes,
+            effective_value_type: Self::effective_enum_value_type(en),
+        }
+    }
+
+    /// Mirrors Java `indexLocalEnum` (`WdlValidator.java:603-620`): on an
+    /// incompatible clash with an already-indexed (imported) enum, emit and
+    /// bail; otherwise overwrite.
+    fn index_local_enum(&mut self, en: &WdlEnum) {
+        if en.name.trim().is_empty() {
+            return;
+        }
+        let incoming = Self::to_enum_shape(en);
+        if let Some(existing) = self.enum_shapes.get(&en.name) {
+            if !existing.is_compatible_with(&incoming) {
+                self.add_error(
+                    WdlErrorCode::TypeMismatch,
+                    format!(
+                        "Enum '{}' conflicts with imported enum definition; \
+                         alias imported enums to disambiguate",
+                        en.name
+                    ),
+                );
+                return;
+            }
+        }
+        self.enum_shapes.insert(en.name.clone(), incoming);
+    }
+
+    /// Mirrors Java `indexImportedEnums` (`WdlValidator.java:417-452`).
+    /// `local_name` is the alias under which the enum enters this document.
+    fn index_imported_enum(&mut self, en: &WdlEnum, local_name: &str) {
+        if en.name.trim().is_empty() || local_name.trim().is_empty() {
+            return;
+        }
+        let incoming = Self::to_enum_shape(en);
+        let conflict = match self.enum_shapes.get(local_name) {
+            None => {
+                self.enum_shapes.insert(local_name.to_string(), incoming);
+                return;
+            }
+            Some(existing) => {
+                if !existing.is_compatible_with(&incoming) {
+                    Some(format!(
+                        "Imported enum '{}' has incompatible definitions across imports; \
+                         use aliases to disambiguate",
+                        local_name
+                    ))
+                } else if type_to_wdl(&existing.effective_value_type)
+                    != type_to_wdl(&incoming.effective_value_type)
+                {
+                    // Java `WdlValidator.java:438-449`. Implemented for parity,
+                    // but unreachable: `is_compatible_with` already pins both the
+                    // declared value type and every `NAME=value` rendering, and
+                    // the effective type is a pure function of exactly those.
+                    // See `.context/B1_plan.md` §5.4.
+                    Some(format!(
+                        "Imported enum '{}' has incompatible value types across imports; \
+                         use aliases to disambiguate",
+                        local_name
+                    ))
+                } else {
+                    None
+                }
+            }
+        };
+        if let Some(message) = conflict {
+            self.add_error(WdlErrorCode::TypeMismatch, message);
+        }
+    }
+
+    /// Indexes every struct and enum exported by `imported_doc` under the local
+    /// name it enters this document with. Mirrors Java's unconditional
+    /// `indexImportedStructs` / `indexImportedEnums` pair
+    /// (`WdlValidator.java:193-194`), which runs for all three import forms.
+    fn index_imported_types(&mut self, imp: &WdlImport, imported_doc: &WdlDocument) {
+        let structs: Vec<WdlStruct> = imported_doc.structs().cloned().collect();
+        for s in &structs {
+            if let Some(local_name) = resolve_imported_type_local_name(imp, &s.name) {
+                self.index_imported_struct(s, &local_name);
+            }
+        }
+        let enums: Vec<WdlEnum> = imported_doc.enums().cloned().collect();
+        for en in &enums {
+            if let Some(local_name) = resolve_imported_type_local_name(imp, &en.name) {
+                self.index_imported_enum(en, &local_name);
+            }
+        }
     }
 
     fn validate_imports(&mut self, doc: &WdlDocument) {
@@ -1792,13 +1964,8 @@ impl ValidatorRunner {
                             let contract = self.build_workflow_contract(w);
                             self.callable_contracts.insert(key, contract);
                         }
-                        for s in imported_doc.structs() {
-                            self.index_local_struct(s);
-                        }
-                        for en in imported_doc.enums() {
-                            self.index_local_enum(en);
-                        }
                     }
+                    self.index_imported_types(imp, &imported_doc);
                 }
                 WdlImport::Star(_) => {
                     for t in imported_doc.tasks() {
@@ -1813,12 +1980,7 @@ impl ValidatorRunner {
                             .entry(w.name.clone())
                             .or_insert(contract);
                     }
-                    for s in imported_doc.structs() {
-                        self.index_local_struct(s);
-                    }
-                    for en in imported_doc.enums() {
-                        self.index_local_enum(en);
-                    }
+                    self.index_imported_types(imp, &imported_doc);
                 }
                 WdlImport::Members(mem_imp) => {
                     let members = mem_imp.members.clone();
@@ -1851,6 +2013,7 @@ impl ValidatorRunner {
                                 .insert(local_name.to_string(), contract);
                         }
                     }
+                    self.index_imported_types(imp, &imported_doc);
                 }
             }
         }
