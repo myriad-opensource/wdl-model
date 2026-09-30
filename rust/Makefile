@@ -12,8 +12,8 @@ test:
 lint:
 	@cargo clippy --all-targets -- -D warnings
 
-format:
+format-check:
 	@cargo fmt --check
 
-format-fix:
+format:
 	@cargo fmt
