@@ -1,4 +1,4 @@
-.PHONY: clean build test lint format
+.PHONY: clean build test lint format format-check
 
 clean:
 	@cargo clean
