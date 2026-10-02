@@ -129,6 +129,36 @@ impl EnumShape {
 /// a `Standard` or `Members` import may rename the type via `alias X as Y`, a
 /// `Star` import never renames, and a `Members` import that does not list the
 /// type at all returns `None` so the type is skipped entirely.
+/// Maps each type name exported by an import's source document to the local
+/// name it enters this document under, for every type the import names.
+///
+/// Mirrors Java `importTypeAliasMap` (`WdlValidator.java:543-569`), including
+/// its omission of `Star` imports: a star import never renames, so the map is
+/// empty and rewriting becomes a no-op.
+fn import_type_alias_map(imp: &WdlImport) -> HashMap<String, String> {
+    fn collect(members: &[WdlImportMember], out: &mut HashMap<String, String>) {
+        for member in members {
+            if member.member.trim().is_empty() {
+                continue;
+            }
+            let local = member
+                .alias
+                .as_deref()
+                .filter(|a| !a.trim().is_empty())
+                .unwrap_or(member.member.as_str());
+            out.insert(member.member.clone(), local.to_string());
+        }
+    }
+
+    let mut aliases = HashMap::new();
+    match imp {
+        WdlImport::Standard(std_imp) => collect(&std_imp.members, &mut aliases),
+        WdlImport::Members(mem_imp) => collect(&mem_imp.members, &mut aliases),
+        WdlImport::Star(_) => {}
+    }
+    aliases
+}
+
 fn resolve_imported_type_local_name(imp: &WdlImport, imported_type_name: &str) -> Option<String> {
     fn aliased(members: &[WdlImportMember], name: &str) -> Option<Option<String>> {
         members.iter().find(|m| m.member == name).map(|m| {
@@ -595,6 +625,26 @@ impl ValidatorRunner {
             return expected.is_optional();
         }
 
+        // Struct type-ref ← struct / object / map literal. Java recurses over
+        // the *expression* here instead of comparing inferred types, which is
+        // what makes `Words w = { "a": 1, "b": 2, "c": 3 }` (map coercion to a
+        // struct) legal — the inferred type would be `Map[String, Int]`, which
+        // is not assignable to `Words`. Mirrors
+        // `WdlExpressionValidator.isAssignableFrom` :210-215, and sits before
+        // the enum check to match Java's ordering.
+        if let WdlType::TypeRef(tr) = expected {
+            if self.struct_member_types.contains_key(&tr.reference_name)
+                && matches!(
+                    expr,
+                    WdlExpression::StructLit(_)
+                        | WdlExpression::ObjLit(_)
+                        | WdlExpression::MapLit(_)
+                )
+            {
+                return self.is_struct_assignable_from_expr(&tr.reference_name, expr);
+            }
+        }
+
         // Enum choice check — if the expected type is a TypeRef pointing at
         // a known enum, and the expression evaluates to a string constant,
         // require the string to be one of the enum's declared choice *names*.
@@ -620,6 +670,107 @@ impl ValidatorRunner {
             Some(actual) => self.is_type_assignable(expected, &actual),
             None => true, // can't infer → assume compatible
         }
+    }
+
+    /// Structural assignability of a struct, object, or map literal to a named
+    /// struct type.
+    ///
+    /// Mirrors `WdlExpressionValidator.isStructAssignableFromExpression`
+    /// (:776-817), except for the member-presence rule -- see
+    /// [`Self::keyed_entries_match_members`].
+    fn is_struct_assignable_from_expr(&self, struct_name: &str, expr: &WdlExpression) -> bool {
+        let Some(expected_members) = self.struct_member_types.get(struct_name) else {
+            return false;
+        };
+
+        let keyed: Vec<(String, Option<&WdlExpression>)> = match expr {
+            WdlExpression::StructLit(lit) => {
+                // A named struct literal must name a compatible struct. Java
+                // skips this when the name is absent or blank (:785).
+                if !lit.name.trim().is_empty() && lit.name != struct_name {
+                    let expected_ref =
+                        WdlType::TypeRef(WdlTypeRefType::new(struct_name.to_string()));
+                    let actual_ref = WdlType::TypeRef(WdlTypeRefType::new(lit.name.clone()));
+                    if !self.is_type_assignable(&expected_ref, &actual_ref) {
+                        return false;
+                    }
+                }
+                lit.entries
+                    .iter()
+                    .map(|e| (e.key.clone(), e.value.as_ref()))
+                    .collect()
+            }
+            WdlExpression::ObjLit(lit) => lit
+                .entries
+                .iter()
+                .map(|e| (e.key.clone(), e.value.as_ref()))
+                .collect(),
+            WdlExpression::MapLit(lit) => {
+                let mut entries = Vec::with_capacity(lit.entries.len());
+                for entry in &lit.entries {
+                    // Java requires every key to evaluate to a String (:799-802);
+                    // anything else makes the whole literal unassignable.
+                    match self.eval_expr(&entry.key) {
+                        EvalValue::Str(key) => entries.push((key, entry.value.as_ref())),
+                        _ => return false,
+                    }
+                }
+                entries
+            }
+            _ => return false,
+        };
+
+        self.keyed_entries_match_members(expected_members, &keyed)
+    }
+
+    /// Every key in the literal must name a declared member and carry an
+    /// assignable value. Members absent from the literal are **not** rejected.
+    ///
+    /// This deliberately diverges from Java's
+    /// `keyedEntriesMatchExpectedMembers` (:821-836), which compares key *sets*
+    /// for equality and so rejects any literal that omits a member, even an
+    /// optional one. Java is wrong here, and provably so: the normative spec
+    /// example `test_struct.wdl` omits the optional `String? username` and
+    /// carries the comment "it's okay to leave out username since it's
+    /// optional". Running Java's own validator over that file rejects it.
+    /// Java never notices because its spec-example tests only parse valid
+    /// examples; the validator runs only on `_fail.wdl` files. Recorded in
+    /// `java/TODO.md`.
+    ///
+    /// Adopting Java's rule here would newly reject `test_struct.wdl` and
+    /// `import_structs.wdl`, both of which this validator accepts today.
+    ///
+    /// Note the spec's actual rule is stronger than what is implemented here:
+    /// optional members may be omitted but *required* members may not.
+    /// `incomplete_struct_fail.wdl` is meant to pin that from the other side
+    /// ("error! missing required account_number"), but it writes its struct
+    /// literal with quoted string keys, which the grammar rejects, so it fails
+    /// at parse time and never reaches semantic validation -- in this
+    /// implementation or in Java. Nothing in the corpus currently exercises the
+    /// required-member rule, and enforcement is deliberately left out so that
+    /// this change adds no presence checking Rust did not already do; see
+    /// `rust/.context/B4_plan.md`.
+    fn keyed_entries_match_members(
+        &self,
+        expected_members: &HashMap<String, WdlType>,
+        actual: &[(String, Option<&WdlExpression>)],
+    ) -> bool {
+        let mut seen: HashMap<&str, Option<&WdlExpression>> = HashMap::new();
+        for (key, value) in actual {
+            // A key that names no declared member cannot be type-checked at all.
+            if !expected_members.contains_key(key.as_str()) {
+                return false;
+            }
+            seen.insert(key.as_str(), *value);
+        }
+        seen.iter().all(|(member, value)| match value {
+            Some(expr) => expected_members
+                .get(*member)
+                .is_some_and(|ty| self.is_assignable_from(ty, expr)),
+            // A keyed entry with no value. Java reaches
+            // `isAssignableFrom(type, null)`, which returns true (:201-203).
+            None => true,
+        })
     }
 
     fn contains_non_string_map_key(&self, expr: &WdlExpression) -> bool {
@@ -1600,6 +1751,75 @@ impl ValidatorRunner {
         }
     }
 
+    /// Rebuilds `ty` with every struct/enum type reference renamed to the local
+    /// name it enters the importing document under.
+    ///
+    /// Mirrors Java `rewriteTypeAliases` (`WdlValidator.java:572-600`): it
+    /// recurses through `Array`, `Pair` and `Map` component types, preserves
+    /// optionality and non-emptiness, and leaves anything else untouched.
+    ///
+    /// Without this, a struct imported under an alias keeps its *source*
+    /// document's names in its member types. For
+    /// `import "lib.wdl" alias Address as Addr alias Person as PersonAlias`,
+    /// `PersonAlias.addr` would stay `TypeRef("Address")` while only `Addr` is
+    /// indexed, so resolving that member type fails.
+    fn rewrite_type_aliases(ty: &WdlType, aliases: &HashMap<String, String>) -> WdlType {
+        if aliases.is_empty() {
+            return ty.clone();
+        }
+        match ty {
+            WdlType::TypeRef(tr) => {
+                let renamed = aliases
+                    .get(&tr.reference_name)
+                    .cloned()
+                    .unwrap_or_else(|| tr.reference_name.clone());
+                WdlType::TypeRef(WdlTypeRefType {
+                    reference_name: renamed,
+                    optional: tr.optional,
+                })
+            }
+            WdlType::Array(arr) => WdlType::Array(WdlArrayType {
+                member_type: Box::new(Self::rewrite_type_aliases(&arr.member_type, aliases)),
+                non_empty: arr.non_empty,
+                optional: arr.optional,
+            }),
+            WdlType::Pair(pair) => WdlType::Pair(Box::new(WdlPairType {
+                left_type: Box::new(Self::rewrite_type_aliases(&pair.left_type, aliases)),
+                right_type: Box::new(Self::rewrite_type_aliases(&pair.right_type, aliases)),
+                optional: pair.optional,
+            })),
+            WdlType::Map(map) => WdlType::Map(Box::new(WdlMapType {
+                key_type: Box::new(Self::rewrite_type_aliases(&map.key_type, aliases)),
+                value_type: Box::new(Self::rewrite_type_aliases(&map.value_type, aliases)),
+                optional: map.optional,
+            })),
+            other => other.clone(),
+        }
+    }
+
+    /// Struct shape for a struct arriving through an import, with member types
+    /// rewritten through the import's alias map. Mirrors Java
+    /// `toImportedStructShape` (`WdlValidator.java:528-541`).
+    fn to_imported_struct_shape(
+        &self,
+        s: &WdlStruct,
+        aliases: &HashMap<String, String>,
+    ) -> StructShape {
+        let mut ordered_wdl = IndexMap::new();
+        let mut ordered_types = IndexMap::new();
+        for elem in &s.elements {
+            if let WdlStructElement::Member(m) = elem {
+                let rewritten = Self::rewrite_type_aliases(&m.wdl_type, aliases);
+                ordered_wdl.insert(m.name.clone(), type_to_wdl(&rewritten));
+                ordered_types.insert(m.name.clone(), rewritten);
+            }
+        }
+        StructShape {
+            ordered_member_type_wdl: ordered_wdl,
+            ordered_member_types: ordered_types,
+        }
+    }
+
     fn build_task_contract(&self, task: &WdlTask) -> CallableContract {
         let mut contract = CallableContract::default();
         for elem in &task.elements {
@@ -1752,12 +1972,18 @@ impl ValidatorRunner {
     }
 
     /// Mirrors Java `indexImportedStructs` (`WdlValidator.java:392-415`).
-    /// `local_name` is the alias under which the struct enters this document.
-    fn index_imported_struct(&mut self, s: &WdlStruct, local_name: &str) {
+    /// `local_name` is the alias under which the struct enters this document;
+    /// `aliases` renames type references inside its member types.
+    fn index_imported_struct(
+        &mut self,
+        s: &WdlStruct,
+        local_name: &str,
+        aliases: &HashMap<String, String>,
+    ) {
         if s.name.trim().is_empty() || local_name.trim().is_empty() {
             return;
         }
-        let incoming = self.to_struct_shape(s);
+        let incoming = self.to_imported_struct_shape(s, aliases);
         match self.struct_shape_for(local_name) {
             None => self.store_struct_shape(local_name, &incoming),
             Some(existing) => {
@@ -1898,10 +2124,11 @@ impl ValidatorRunner {
     /// `indexImportedStructs` / `indexImportedEnums` pair
     /// (`WdlValidator.java:193-194`), which runs for all three import forms.
     fn index_imported_types(&mut self, imp: &WdlImport, imported_doc: &WdlDocument) {
+        let aliases = import_type_alias_map(imp);
         let structs: Vec<WdlStruct> = imported_doc.structs().cloned().collect();
         for s in &structs {
             if let Some(local_name) = resolve_imported_type_local_name(imp, &s.name) {
-                self.index_imported_struct(s, &local_name);
+                self.index_imported_struct(s, &local_name, &aliases);
             }
         }
         let enums: Vec<WdlEnum> = imported_doc.enums().cloned().collect();
@@ -2316,7 +2543,22 @@ impl ValidatorRunner {
         let coll_ty = self.infer_type(&scatter.collection);
         let elem_ty = match coll_ty {
             Some(WdlType::Array(arr)) => *arr.member_type,
-            _ => WdlType::Primitive(WdlPrimitiveType::new(WdlPrimitiveKind::Object)),
+            // Collection type not inferable (e.g. `as_pairs`, which has no arm
+            // in `infer_function_type`). Bind `Unknown`, not a concrete
+            // `Object`: `is_type_assignable` treats `Unknown` as compatible in
+            // both directions, so uses of the scatter variable go unchecked
+            // rather than being checked against a type we invented.
+            //
+            // This reproduces Java, which never binds the scatter variable at
+            // all (`WdlValidator.processWorkflowScatter`, :876-881), so
+            // `scopeTypes.get` is null and `isAssignableFrom` short-circuits to
+            // true (`WdlExpressionValidator.java:252-253`). Binding `Object`
+            // made Rust reject the valid spec examples
+            // `serde_homogeneous_pair.wdl` and `serde_pair.wdl`.
+            //
+            // Where the collection type *is* known Rust still checks uses of
+            // the scatter variable, which Java cannot. That is intentional.
+            _ => WdlType::Unknown,
         };
 
         let coll_expr = scatter.collection.clone();

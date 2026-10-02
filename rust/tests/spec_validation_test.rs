@@ -1,17 +1,21 @@
-//! Spec example validation — parses and validates every non-fail WDL spec
+//! Spec example validation -- parses and validates every non-fail WDL spec
 //! example in all three version directories (v1_1, v1_2, v1_3), and asserts
-//! every `_fail` example is rejected by the base validator. Mirrors Java's
-//! `WdlV1{1,2,3}SpecExamplesTest.testParseSpecExample` /
-//! `testParseAndValidateFailSpecExample`.
+//! every `_fail` example is rejected by the base validator.
+//!
+//! Only the `_fail` half mirrors Java, as
+//! `WdlV1{1,2,3}SpecExamplesTest.testParseAndValidateFailSpecExample`. Java has
+//! no counterpart for the valid half: its `testParseSpecExample` only *parses*
+//! valid examples and never constructs a validator
+//! (`WdlV11SpecExamplesTest.java:53-76`). The Rust mirror of that is
+//! `spec_parse_test.rs`; validating the valid examples here goes beyond the
+//! reference implementation deliberately.
 //!
 //! Files are skipped if they fall into a known-gap category:
 //!
-//! **Validator false-positive** — the validator incorrectly rejects a valid
+//! **Validator false-positive** -- the validator incorrectly rejects a valid
 //! spec example due to an over-eager constant-folding rule.
 //!
-//! **P1 inference gap** — the validator rejects a valid spec example because
-//! the type inference or assignability logic is missing a rule that Java has.
-//! Documented in `rust/.context/p1_plan.md`. Should be removed when P1 lands.
+//! **P1 inference gap** -- see [`P1_INFERENCE_GAP`].
 
 use std::collections::HashSet;
 use std::fs;
@@ -27,49 +31,31 @@ use wdl_model::validators::WdlValidator;
 /// Only present in v1_2 and v1_3.
 const VALIDATOR_FALSE_POSITIVE: &[&str] = &["placeholder_none.wdl", "test_select_first.wdl"];
 
-/// Valid spec examples that trigger P1 inference gaps once the P0 baseline
-/// assignability check is enabled. Each falls into one of these categories,
-/// all tracked in `rust/.context/p1_plan.md`:
+/// Valid spec examples the base validator rejects. After the B4 audit every
+/// remaining entry has the same single cause: **scatter/conditional output
+/// rewrapping**. Inside a `scatter {}` a declaration or call output is scalar
+/// `T`, but referenced from the enclosing scope it is `Array[T]`; inside
+/// `if {}` it is `T?`. Neither `infer_type` nor `scope_types` applies that
+/// rewrapping, so the outer reference is checked against the inner scalar type.
 ///
-/// - **Scatter/conditional output rewrapping** — inside a `scatter {}` a call
-///   output is scalar, but outside it is `Array[T]`; inside `if {}` it is
-///   `T?`. Rust's `infer_type` doesn't apply this rewrapping when a symbol
-///   defined inside a scatter/conditional is referenced from an outer scope.
-///   (`test_scatter.wdl`, `nested_scatter.wdl`, `test_conditional.wdl`,
-///   `main.wdl`, `test_keys.wdl`, `test_range.wdl`, `allow_nested.wdl`,
-///   `chunk_array.wdl`, `test_values.wdl`)
+/// It surfaces as a declaration mismatch (`Array[Array[Int]] aout = a`,
+/// `map_to_array.wdl`) or as a call-input mismatch (`args = arg_str`,
+/// `serialize_map.wdl`); same gap, two sites.
 ///
-/// - **Weak `ArrayLit`/`MapLit`/`PairLit` element inference** — P1 Task 1.6:
-///   `infer_type` uses only the first entry rather than folding all entries
-///   via `merge_types`. (`map_to_array.wdl`, `pair_to_array.wdl`,
-///   `test_map_ordering.wdl`)
-///
-/// - **Missing struct/object/map literal assignability walk** — P1 Task 1.2
-///   (`Object ← struct/object/Map[String,_]`) and 1.3 (`Map[String,V] ← struct`).
-///   (`map_to_struct.wdl`)
-///
-/// - **Missing `String → File`/`File → String` bidirectional coercion in
-///   placeholder contexts** — P1 type-rule expansion.
-///   (`placeholder_coercion.wdl`)
-///
-/// - **Missing struct-literal per-member walk on call inputs** —
-///   P1 Task 1.4 / §Task 5 in P2 (`isAssignableFrom` for struct/pair literals
-///   as arguments). (`serde_homogeneous_pair.wdl`, `serde_pair.wdl`,
-///   `serialize_map.wdl`, `non_empty_optional.wdl`)
-///
-/// Every entry here should be removable once P1 lands and Rust inference
-/// matches Java.
+/// **This is not a Java-parity gap.** Java fails all of these too -- measured
+/// by running Java's `WdlValidator` directly over each file. Java never
+/// catches it because its spec-example tests only *parse* valid examples
+/// (`WdlV11SpecExamplesTest.java:53-76`); the validator runs only on
+/// `_fail.wdl` files. This suite is therefore stricter than anything Java has,
+/// and closing these entries means going *beyond* the reference
+/// implementation. Deliberately deferred -- see `rust/.context/B4_plan.md` and
+/// the F1 parity sweep.
 const P1_INFERENCE_GAP: &[&str] = &[
     "allow_nested.wdl",
     "chunk_array.wdl",
     "main.wdl",
     "map_to_array.wdl",
-    "map_to_struct.wdl",
     "nested_scatter.wdl",
-    "non_empty_optional.wdl",
-    "pair_to_array.wdl",
-    "serde_homogeneous_pair.wdl",
-    "serde_pair.wdl",
     "serialize_map.wdl",
     "test_conditional.wdl",
     "test_keys.wdl",
